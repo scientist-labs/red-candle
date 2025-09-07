@@ -196,7 +196,7 @@ module Candle
       # This is especially important for Ruby < 3.2
       max_length = 1_000_000  # 1MB of text
       if text.length > max_length
-        warn "PatternEntityRecognizer: Text truncated from #{text.length} to #{max_length} chars for safety"
+        warn "PatternEntityRecognizer: Text truncated from #{text.length} to #{max_length} chars for safety" if ENV['CANDLE_VERBOSE']
         text = text[0...max_length]
       end
       
