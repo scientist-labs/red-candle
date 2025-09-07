@@ -1,6 +1,6 @@
 <img src="/docs/assets/logo-title.png" alt="red-candle" height="80px">
 
-[![build](https://github.com/assaydepot/red-candle/actions/workflows/build.yml/badge.svg)](https://github.com/assaydepot/red-candle/actions/workflows/build.yml)
+[![build](https://github.com/scientist-labs/red-candle/actions/workflows/build.yml/badge.svg)](https://github.com/scientist-labs/red-candle/actions/workflows/build.yml)
 [![Gem Version](https://badge.fury.io/rb/red-candle.svg)](https://badge.fury.io/rb/red-candle)
 
 Run state-of-the-art **language models directly from Ruby**. No Python, no APIs, no external services - just Ruby with blazing-fast Rust under the hood. Hardware accelerated with **Metal (Mac)** and **CUDA (NVIDIA).** Red candle leverages the Rust ecosystem, notably [Candle](https://github.com/huggingface/candle) and [Magnus](https://github.com/matsadler/magnus), to provide a fast and efficient way to run LLMs in Ruby. See [Dependencies](#dependencies) for more.
@@ -509,7 +509,7 @@ Choose based on your needs:
    ```ruby
    # Good: Single call with multiple documents
    results = reranker.rerank(query, documents)
-   
+
    # Less efficient: Multiple calls
    documents.map { |doc| reranker.rerank(query, [doc]) }
    ```
@@ -525,21 +525,21 @@ Choose based on your needs:
      # Split into overlapping chunks
      words = long_text.split
      chunks = []
-     
+
      (0...words.length).step(chunk_size - 50) do |i|
        chunk = words[i...(i + chunk_size)].join(" ")
        chunks << chunk
      end
-     
+
      # Rerank chunks
      results = reranker.rerank(query, chunks)
-     
+
      # Return best chunk
      results.max_by { |r| r[:score] }
    end
    ```
 
-5. **Memory Usage**: 
+5. **Memory Usage**:
    - Model size: ~125MB
    - Each batch processes all documents simultaneously
    - Consider batching if you have many documents
@@ -949,7 +949,7 @@ Failed to load GGUF model: cannot find llama.attention.head_count in metadata (R
 FORK IT!
 
 ```
-git clone https://github.com/assaydepot/red-candle
+git clone https://github.com/scientist-labs/red-candle
 cd red-candle
 bundle
 bundle exec rake compile
