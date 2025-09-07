@@ -2,7 +2,12 @@ name: build
 on: pull_request
 jobs:
   build:
-    runs-on: red-candle-runner
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        ruby-version: ['3.2', '3.3']
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
@@ -15,7 +20,7 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: ruby
+          ruby-version: ${{ matrix.ruby-version }}
           bundler-cache: true
 
       # Configure AWS credentials for S3 access
@@ -53,6 +58,7 @@ jobs:
           # HF_HUB_OFFLINE is already set by S3 sync step
           # This ensures no HuggingFace API calls during tests
           echo "Running specs with HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
+          echo "Ruby version: ${{ matrix.ruby-version }}"
           bundle exec rspec
 
       - name: Display Disk Space After Test
