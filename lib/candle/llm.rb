@@ -78,7 +78,7 @@ module Candle
         JSON.parse(json_content)
       rescue JSON::ParserError => e
         # Return the raw string if parsing fails
-        warn "Warning: Generated output is not valid JSON: #{e.message}" if options[:warn_on_parse_error] && ENV['CANDLE_VERBOSE']
+        Candle.logger.warn "Generated output is not valid JSON: #{e.message}" if options[:warn_on_parse_error]
         result
       end
     end
@@ -261,7 +261,7 @@ module Candle
           if e.message.include?("No tokenizer found")
             # Auto-detect tokenizer
             detected_tokenizer = guess_tokenizer(model_id)
-            warn "No tokenizer found in GGUF repo. Using tokenizer from: #{detected_tokenizer}" if ENV['CANDLE_VERBOSE']
+            Candle.logger.info "No tokenizer found in GGUF repo. Using tokenizer from: #{detected_tokenizer}"
             model_str = "#{model_str}@@#{detected_tokenizer}"
             _from_pretrained(model_str, device)
           else

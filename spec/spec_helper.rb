@@ -49,20 +49,25 @@ RSpec.configure do |config|
   # Include helpers
   config.include DeviceHelpers
   
-  # Suppress warnings during tests (same as Minitest setup)
+  # Configure clean test output
   config.before(:suite) do
     $VERBOSE = nil
-    def Kernel.warn(*args); end
+    
+    # Set logger to error-only during tests (clean test output)
+    Candle.configure_logging { |c| c.silent! }
   end
   
-  # Print test environment info
+  # Print test environment info (use --verbose or -v for details)
   config.before(:suite) do
-    if ENV['CANDLE_TEST_VERBOSE'] || ARGV.include?('-v')
+    if ARGV.include?('--verbose') || ARGV.include?('-v')
       puts "\nCandle RSpec Test Environment:"
       puts "  Ruby version: #{RUBY_VERSION}"
       puts "  Available devices: #{DeviceHelpers.available_devices.join(', ')}"
       puts "  Testing devices: #{DeviceHelpers.devices_to_test.join(', ')}"
       puts
+      
+      # Also enable verbose logging for tests
+      Candle.configure_logging { |c| c.verbose! }
     end
   end
   
