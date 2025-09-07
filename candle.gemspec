@@ -26,7 +26,7 @@ Gem::Specification.new do |spec|
   spec.extensions  = ["ext/candle/extconf.rb"]
   spec.authors     = ["Christopher Petersen", "kojix2"]
   spec.email       = ["chris@petersen.io", "2xijok@gmail.com"]
-  spec.homepage    = "https://github.com/assaydepot/red-candle"
+  spec.homepage    = "https://github.com/scientist-labs/red-candle"
   spec.license     = "MIT"
 
   spec.requirements = ["Rust >= 1.85"]
@@ -34,7 +34,7 @@ Gem::Specification.new do |spec|
   spec.required_rubygems_version = ">= 3.3.26"
 
   spec.add_dependency "rb_sys"
-  
+
   # Development dependencies
   spec.add_development_dependency "minitest"
   spec.add_development_dependency "rake"

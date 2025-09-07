@@ -3,8 +3,7 @@ module Candle
     def self.display_cuda_info
       info = Candle.build_info
       
-      # Only display CUDA info if running in development or if CANDLE_VERBOSE is set
-      return unless ENV['CANDLE_VERBOSE'] || ENV['CANDLE_DEBUG'] || $DEBUG
+      # CUDA info is now controlled by logger level
       
       if info["cuda_available"] == false
         # :nocov:
@@ -13,11 +12,11 @@ module Candle
                                    File.exist?('/usr/local/cuda') || File.exist?('/opt/cuda')
         
         if cuda_potentially_available
-          warn "=" * 80
-          warn "Red Candle: CUDA detected on system but not enabled in build."
-          warn "This may be due to CANDLE_DISABLE_CUDA being set during installation."
-          warn "To enable CUDA support, reinstall without CANDLE_DISABLE_CUDA set."
-          warn "=" * 80
+          Candle.logger.warn "=" * 80
+          Candle.logger.warn "Red Candle: CUDA detected on system but not enabled in build."
+          Candle.logger.warn "This may be due to CANDLE_DISABLE_CUDA being set during installation."
+          Candle.logger.warn "To enable CUDA support, reinstall without CANDLE_DISABLE_CUDA set."
+          Candle.logger.warn "=" * 80
         end
         # :nocov:
       end
