@@ -1,4 +1,4 @@
-<img src="/docs/assets/logo-title.png" alt="red-candle" height="80px">
+<img src="/docs/assets/logo-title.png" alt="red-candle" height="160px">
 
 [![build](https://github.com/scientist-labs/red-candle/actions/workflows/build.yml/badge.svg)](https://github.com/scientist-labs/red-candle/actions/workflows/build.yml)
 [![Gem Version](https://badge.fury.io/rb/red-candle.svg)](https://badge.fury.io/rb/red-candle)
