@@ -38,8 +38,8 @@ impl Phi {
         }
     }
     
-    /// Load a Phi model from HuggingFace
-    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+    /// Load a Phi model from HuggingFace with optional custom tokenizer
+    pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
         
@@ -50,11 +50,19 @@ impl Phi {
             .map_err(|e| candle_core::Error::Msg(format!("Failed to download config: {}", e)))?;
         let config_str = std::fs::read_to_string(config_filename)?;
         
-        // Download tokenizer
-        let tokenizer_filename = repo.get("tokenizer.json").await
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
-        let tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?;
+        // Download tokenizer from custom source if provided, otherwise from model repo
+        let tokenizer = if let Some(tokenizer_id) = tokenizer_source {
+            let tokenizer_repo = api.model(tokenizer_id.to_string());
+            let tokenizer_filename = tokenizer_repo.get("tokenizer.json").await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer from {}: {}", tokenizer_id, e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        } else {
+            let tokenizer_filename = repo.get("tokenizer.json").await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        };
         
         // Determine EOS token
         let vocab = tokenizer.get_vocab(true);
@@ -133,6 +141,11 @@ impl Phi {
             model_id: model_id.to_string(),
             eos_token_id,
         })
+    }
+
+    /// Load a Phi model from HuggingFace (backwards compatibility)
+    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+        Self::from_pretrained_with_tokenizer(model_id, device, None).await
     }
     
     /// Apply Phi chat template to messages
