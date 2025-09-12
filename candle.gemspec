@@ -30,8 +30,8 @@ Gem::Specification.new do |spec|
   spec.license     = "MIT"
 
   spec.requirements = ["Rust >= 1.85"]
-  spec.required_ruby_version = ">= 3.2.0"
-  spec.required_rubygems_version = ">= 3.3.26"
+  spec.required_ruby_version = ">= 3.1.0"
+  spec.required_rubygems_version = ">= 3.3"
 
   spec.add_dependency "rb_sys"
 
