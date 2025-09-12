@@ -3,8 +3,8 @@ require_relative "lib/candle/version"
 Gem::Specification.new do |spec|
   spec.name        = "red-candle"
   spec.version     = Candle::VERSION
-  spec.summary     = "huggingface/candle for Ruby"
-  spec.description = "huggingface/candle for Ruby"
+  spec.summary     = "Ruby gem for running state-of-the-art language models locally. Access LLMs, embeddings, rerankers, and NER models directly from Ruby using Rust-powered Candle with Metal/CUDA acceleration."
+  spec.description = "Ruby gem for running state-of-the-art language models locally. Access LLMs, embeddings, rerankers, and NER models directly from Ruby using Rust-powered Candle with Metal/CUDA acceleration."
   spec.files = Dir[
     "lib/**/*.rb",
     "ext/candle/extconf.rb",

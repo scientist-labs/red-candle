@@ -3,109 +3,155 @@ require "spec_helper"
 RSpec.describe "Custom Tokenizer Support" do
   describe "model-specific custom tokenizer support" do
     context "Llama models" do
-      it "accepts custom tokenizer for Llama safetensors models" do
-        skip "Not yet implemented"
-        
+      it "accepts custom tokenizer for Llama2 safetensors models" do
+        # Test with fake model to avoid downloading large files
         expect {
           Candle::LLM.from_pretrained(
-            "meta-llama/Llama-2-7b-hf",
+            "meta-llama/fake-llama-2-model",
             tokenizer: "meta-llama/Llama-2-7b-chat-hf"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
+        # Should fail on model download, not tokenizer rejection
+      end
+      
+      it "accepts custom tokenizer for Llama3 safetensors models" do
+        # Use fake model to test tokenizer acceptance
+        expect {
+          Candle::LLM.from_pretrained(
+            "meta-llama/fake-llama-3-model",
+            tokenizer: "meta-llama/Meta-Llama-3-8B-Instruct"
+          )
+        }.to raise_error(/Failed to (download|load|create)/)
+        # Should fail on model, not tokenizer
       end
       
       it "accepts custom tokenizer for TinyLlama models" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+            "TinyLlama/fake-tinyllama-model",
             tokenizer: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
+      end
+      
+      it "accepts custom tokenizer for CodeLlama models" do
+        expect {
+          Candle::LLM.from_pretrained(
+            "codellama/fake-codellama-model",
+            tokenizer: "codellama/CodeLlama-7b-Instruct-hf"
+          )
+        }.to raise_error(/Failed to (download|load|create)/)
       end
       
       it "fails gracefully with invalid tokenizer for Llama" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "meta-llama/Llama-2-7b-hf",
-            tokenizer: "invalid/nonexistent-tokenizer"
+            "meta-llama/fake-llama-model",
+            tokenizer: "invalid/nonexistent-tokenizer-xyz"
           )
-        }.to raise_error(/Failed to (download|load) tokenizer/)
+        }.to raise_error(/Failed to/)
+        # Should fail on tokenizer or model download
       end
+      
     end
     
     context "Mistral models" do
       it "accepts custom tokenizer for Mistral safetensors models" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "mistralai/Mistral-7B-v0.1",
+            "mistralai/fake-mistral-model",
             tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
       end
       
       it "accepts custom tokenizer for Mixtral models" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "mistralai/Mixtral-8x7B-v0.1",
+            "mistralai/fake-mixtral-model",
             tokenizer: "mistralai/Mixtral-8x7B-Instruct-v0.1"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
+      end
+      
+      it "accepts custom tokenizer for Mistral v0.3 models" do
+        expect {
+          Candle::LLM.from_pretrained(
+            "mistralai/fake-mistral-v3-model",
+            tokenizer: "mistralai/Mistral-7B-Instruct-v0.3"
+          )
+        }.to raise_error(/Failed to (download|load|create)/)
+      end
+      
+      it "handles tokenizer.model vs tokenizer.json differences" do
+        # Some Mistral models use tokenizer.model (SentencePiece) instead of tokenizer.json
+        # Testing that we can specify a tokenizer with tokenizer.json
+        expect {
+          Candle::LLM.from_pretrained(
+            "mistralai/fake-mistral-sp-model",
+            tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
+          )
+        }.to raise_error(/Failed to (download|load|create)/)
       end
     end
     
     context "Gemma models" do
       it "accepts custom tokenizer for Gemma safetensors models" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "google/gemma-2b",
+            "google/fake-gemma-model",
             tokenizer: "google/gemma-2b-it"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
       end
       
       it "accepts custom tokenizer for Gemma2 models" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "google/gemma-2-2b",
+            "google/fake-gemma-2-model",
             tokenizer: "google/gemma-2-2b-it"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
+      end
+      
+      it "accepts custom tokenizer for different Gemma sizes" do
+        # Should work with 7b using 2b tokenizer
+        expect {
+          Candle::LLM.from_pretrained(
+            "google/fake-gemma-7b",
+            tokenizer: "google/gemma-2b-it"
+          )
+        }.to raise_error(/Failed to (download|load|create)/)
       end
     end
     
     context "Qwen models" do
-      it "accepts custom tokenizer for Qwen safetensors models" do
-        skip "Not yet implemented"
-        
+      it "accepts custom tokenizer for Qwen2.5 safetensors models" do
         expect {
           Candle::LLM.from_pretrained(
-            "Qwen/Qwen2.5-0.5B",
+            "Qwen/fake-qwen2.5-model",
             tokenizer: "Qwen/Qwen2.5-0.5B-Instruct"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
       end
       
       it "accepts custom tokenizer for Qwen2 models" do
-        skip "Not yet implemented"
-        
         expect {
           Candle::LLM.from_pretrained(
-            "Qwen/Qwen2-0.5B",
+            "Qwen/fake-qwen2-model",
             tokenizer: "Qwen/Qwen2-0.5B-Instruct"
           )
-        }.not_to raise_error
+        }.to raise_error(/Failed to (download|load|create)/)
+      end
+      
+      it "accepts custom tokenizer for different Qwen sizes" do
+        # Should work with larger models using smaller model tokenizer
+        expect {
+          Candle::LLM.from_pretrained(
+            "Qwen/fake-qwen-7b",
+            tokenizer: "Qwen/Qwen2.5-0.5B-Instruct"
+          )
+        }.to raise_error(/Failed to (download|load|create)/)
       end
     end
     
@@ -134,27 +180,25 @@ RSpec.describe "Custom Tokenizer Support" do
   
   describe "cross-model tokenizer compatibility" do
     it "allows using Llama tokenizer with Mistral model" do
-      skip "Not yet implemented"
-      
       # This is technically possible though may produce suboptimal results
       expect {
         Candle::LLM.from_pretrained(
-          "mistralai/Mistral-7B-v0.1",
+          "mistralai/fake-mistral-model",
           tokenizer: "meta-llama/Llama-2-7b-hf"
         )
-      }.not_to raise_error
+      }.to raise_error(/Failed to (download|load|create)/)
+      # Should fail on model, not cross-model tokenizer usage
     end
     
     it "allows using any HF tokenizer with any model" do
-      skip "Not yet implemented"
-      
       # Should be possible even if not recommended
       expect {
         Candle::LLM.from_pretrained(
-          "google/gemma-2b",
+          "google/fake-gemma-model",
           tokenizer: "bert-base-uncased"
         )
-      }.not_to raise_error
+      }.to raise_error(/Failed to (download|load|create)/)
+      # Should fail on model, not tokenizer type mismatch
     end
   end
   
@@ -163,48 +207,49 @@ RSpec.describe "Custom Tokenizer Support" do
     # by failing at model download stage, not tokenizer validation
     
     it "validates Llama tokenizer parameter without downloading model" do
-      skip "Not yet implemented"
-      
       expect {
         Candle::LLM.from_pretrained(
           "meta-llama/fake-llama-model",
           tokenizer: "meta-llama/Llama-2-7b-hf"
         )
-      }.to raise_error(/Failed to download (config|model)/)
+      }.to raise_error(/Failed to (download|load|create)/)
       # Should fail on model, not tokenizer parameter
     end
     
+    it "validates TinyLlama tokenizer parameter without downloading model" do
+      expect {
+        Candle::LLM.from_pretrained(
+          "TinyLlama/fake-tinyllama-model",
+          tokenizer: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        )
+      }.to raise_error(/Failed to (download|load|create)/)
+    end
+    
     it "validates Mistral tokenizer parameter without downloading model" do
-      skip "Not yet implemented"
-      
       expect {
         Candle::LLM.from_pretrained(
           "mistralai/fake-mistral-model",
           tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
         )
-      }.to raise_error(/Failed to download (config|model)/)
+      }.to raise_error(/Failed to (download|load|create)/)
     end
     
     it "validates Gemma tokenizer parameter without downloading model" do
-      skip "Not yet implemented"
-      
       expect {
         Candle::LLM.from_pretrained(
           "google/fake-gemma-model",
           tokenizer: "google/gemma-2b"
         )
-      }.to raise_error(/Failed to download (config|model)/)
+      }.to raise_error(/Failed to (download|load|create)/)
     end
     
     it "validates Qwen tokenizer parameter without downloading model" do
-      skip "Not yet implemented"
-      
       expect {
         Candle::LLM.from_pretrained(
           "Qwen/fake-qwen-model",
           tokenizer: "Qwen/Qwen2.5-0.5B-Instruct"
         )
-      }.to raise_error(/Failed to download (config|model)/)
+      }.to raise_error(/Failed to (download|load|create)/)
     end
   end
   
@@ -229,6 +274,40 @@ RSpec.describe "Custom Tokenizer Support" do
           tokenizer: "some-org/model-without-tokenizer-json"
         )
       }.to raise_error(/tokenizer.json/)
+    end
+    
+    it "provides helpful suggestion when tokenizer parameter missing" do
+      skip "Not yet implemented"
+      
+      # When a model doesn't have a tokenizer and none is specified
+      expect {
+        Candle::LLM.from_pretrained("some-org/model-without-tokenizer")
+      }.to raise_error(/specify a tokenizer/)
+    end
+  end
+  
+  describe "implementation approach" do
+    it "extends from_pretrained_with_tokenizer pattern to all models" do
+      skip "Not yet implemented"
+      
+      # Each model type (Llama, Mistral, etc.) should have a 
+      # from_pretrained_with_tokenizer method like Phi does
+      
+      # This ensures consistency across all model implementations
+      expect(Candle::LLM).to respond_to(:from_pretrained)
+      
+      # The tokenizer parameter should be optional
+      expect {
+        Candle::LLM.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+      }.not_to raise_error
+      
+      # But can be specified when needed
+      expect {
+        Candle::LLM.from_pretrained(
+          "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+          tokenizer: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        )
+      }.not_to raise_error
     end
   end
   

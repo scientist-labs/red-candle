@@ -274,60 +274,74 @@ impl LLM {
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load GGUF model: {}", e)))?;
             ModelType::QuantizedGGUF(gguf_model)
         } else {
-            // Load non-quantized models with optional custom tokenizer
+            // Load non-quantized models based on type
             let model_lower_clean = model_id_clean.to_lowercase();
-            if tokenizer_source.is_some() {
-                // Custom tokenizer support - currently only implemented for Phi models
-                if model_lower_clean.contains("phi") {
-                    let phi = rt.block_on(async {
-                        RustPhi::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+            
+            if model_lower_clean.contains("mistral") {
+                let mistral = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustMistral::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
                     })
-                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
-                    ModelType::Phi(phi)
                 } else {
-                    return Err(Error::new(
-                        magnus::exception::runtime_error(),
-                        format!("Custom tokenizers are currently only supported for Phi models. Model '{}' does not support custom tokenizers yet.", model_id_clean),
-                    ));
-                }
-            } else {
-                // Standard loading without custom tokenizer
-                if model_lower_clean.contains("mistral") {
-                    let mistral = rt.block_on(async {
+                    rt.block_on(async {
                         RustMistral::from_pretrained(&model_id_clean, candle_device).await
                     })
-                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
-                    ModelType::Mistral(mistral)
-                } else if model_lower_clean.contains("llama") || model_lower_clean.contains("meta-llama") || model_lower_clean.contains("tinyllama") {
-                    let llama = rt.block_on(async {
+                }
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
+                ModelType::Mistral(mistral)
+            } else if model_lower_clean.contains("llama") || model_lower_clean.contains("meta-llama") || model_lower_clean.contains("tinyllama") {
+                let llama = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustLlama::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
                         RustLlama::from_pretrained(&model_id_clean, candle_device).await
                     })
-                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
-                    ModelType::Llama(llama)
-                } else if model_lower_clean.contains("gemma") || model_lower_clean.contains("google/gemma") {
-                    let gemma = rt.block_on(async {
+                }
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
+                ModelType::Llama(llama)
+            } else if model_lower_clean.contains("gemma") || model_lower_clean.contains("google/gemma") {
+                let gemma = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustGemma::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
                         RustGemma::from_pretrained(&model_id_clean, candle_device).await
                     })
-                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
-                    ModelType::Gemma(gemma)
-                } else if model_lower_clean.contains("qwen") {
-                    let qwen = rt.block_on(async {
+                }
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
+                ModelType::Gemma(gemma)
+            } else if model_lower_clean.contains("qwen") {
+                let qwen = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustQwen::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
                         RustQwen::from_pretrained(&model_id_clean, candle_device).await
                     })
-                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
-                    ModelType::Qwen(qwen)
-                } else if model_lower_clean.contains("phi") {
-                    let phi = rt.block_on(async {
+                }
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
+                ModelType::Qwen(qwen)
+            } else if model_lower_clean.contains("phi") {
+                let phi = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustPhi::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
                         RustPhi::from_pretrained(&model_id_clean, candle_device).await
                     })
-                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
-                    ModelType::Phi(phi)
-                } else {
-                    return Err(Error::new(
-                        magnus::exception::runtime_error(),
-                        format!("Unsupported model type: {}. Currently Mistral, Llama, Gemma, Qwen, and Phi models are supported.", model_id_clean),
-                    ));
                 }
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
+                ModelType::Phi(phi)
+            } else {
+                return Err(Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Unsupported model type: {}. Currently Mistral, Llama, Gemma, Qwen, and Phi models are supported.", model_id_clean),
+                ));
             }
         };
         

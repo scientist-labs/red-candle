@@ -37,8 +37,8 @@ impl Llama {
         &self.tokenizer
     }
     
-    /// Load a Llama model from HuggingFace Hub
-    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+    /// Load a Llama model from HuggingFace Hub with optional custom tokenizer
+    pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
         
@@ -50,10 +50,23 @@ impl Llama {
             .await
             .map_err(|e| candle_core::Error::Msg(format!("Failed to download config: {}", e)))?;
         
-        let tokenizer_filename = repo
-            .get("tokenizer.json")
-            .await
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+        // Download tokenizer from custom source if provided, otherwise from model repo
+        let tokenizer = if let Some(tokenizer_id) = tokenizer_source {
+            let tokenizer_repo = api.repo(Repo::model(tokenizer_id.to_string()));
+            let tokenizer_filename = tokenizer_repo
+                .get("tokenizer.json")
+                .await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer from {}: {}", tokenizer_id, e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        } else {
+            let tokenizer_filename = repo
+                .get("tokenizer.json")
+                .await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        };
         
         // Try different file patterns for model weights
         let weights_filenames = if let Ok(single_file) = repo.get("model.safetensors").await {
@@ -97,10 +110,6 @@ impl Llama {
             .map_err(|e| candle_core::Error::Msg(format!("Failed to parse config: {}", e)))?;
         let config = llama_config.into_config(false); // Don't use flash attention for now
         
-        // Load tokenizer
-        let tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?;
-        
         // Determine EOS token ID based on model type
         let eos_token_id = if model_id.contains("Llama-3") || model_id.contains("llama-3") {
             // Llama 3 uses different special tokens
@@ -137,6 +146,11 @@ impl Llama {
             cache,
             config,
         })
+    }
+
+    /// Load a Llama model from HuggingFace Hub (backwards compatibility)
+    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+        Self::from_pretrained_with_tokenizer(model_id, device, None).await
     }
 
     /// Create from existing components (useful for testing)
