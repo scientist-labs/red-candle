@@ -312,14 +312,6 @@ RSpec.describe "Custom Tokenizer Support" do
   describe "functional tests with real tokenizers" do
     # These tests download small tokenizers but not models
     
-    it "can load Llama tokenizer standalone" do
-      skip "Requires HF_TOKEN for Llama tokenizer"
-      
-      tokenizer = Candle::Tokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
-      expect(tokenizer).not_to be_nil
-      expect(tokenizer.get_vocab).to include("▁Hello")
-    end
-    
     it "can load Mistral tokenizer standalone" do
       # Mistral-7B-v0.1 uses tokenizer.model, not tokenizer.json
       # Use the Instruct version which has tokenizer.json
@@ -329,14 +321,6 @@ RSpec.describe "Custom Tokenizer Support" do
       tokens = tokenizer.encode("Hello, world!")
       expect(tokens).to be_a(Array)
       expect(tokens).not_to be_empty
-    end
-    
-    it "can load Gemma tokenizer standalone" do
-      skip "Requires agreement to Gemma terms"
-      
-      tokenizer = Candle::Tokenizer.from_pretrained("google/gemma-2b")
-      expect(tokenizer).not_to be_nil
-      expect(tokenizer.get_vocab).to include("<start_of_turn>")
     end
     
     it "can load Qwen tokenizer standalone" do
