@@ -38,8 +38,8 @@ impl Phi {
         }
     }
     
-    /// Load a Phi model from HuggingFace
-    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+    /// Load a Phi model from HuggingFace with optional custom tokenizer
+    pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
         
@@ -50,11 +50,19 @@ impl Phi {
             .map_err(|e| candle_core::Error::Msg(format!("Failed to download config: {}", e)))?;
         let config_str = std::fs::read_to_string(config_filename)?;
         
-        // Download tokenizer
-        let tokenizer_filename = repo.get("tokenizer.json").await
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
-        let tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?;
+        // Download tokenizer from custom source if provided, otherwise from model repo
+        let tokenizer = if let Some(tokenizer_id) = tokenizer_source {
+            let tokenizer_repo = api.model(tokenizer_id.to_string());
+            let tokenizer_filename = tokenizer_repo.get("tokenizer.json").await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer from {}: {}", tokenizer_id, e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        } else {
+            let tokenizer_filename = repo.get("tokenizer.json").await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        };
         
         // Determine EOS token
         let vocab = tokenizer.get_vocab(true);
@@ -104,7 +112,62 @@ impl Phi {
         
         let model = if is_phi3 {
             // Load Phi3 model
-            let config: Phi3Config = serde_json::from_str(&config_str)
+            // Handle config differences between Phi-3-small and Phi-3-mini
+            let mut config_str_fixed;
+            
+            // Parse config as JSON for modifications
+            let mut config_json: serde_json::Value = serde_json::from_str(&config_str)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to parse config JSON: {}", e)))?;
+            
+            // Phi-3-small uses ff_intermediate_size instead of intermediate_size
+            if config_json.get("ff_intermediate_size").is_some() && config_json.get("intermediate_size").is_none() {
+                if let Some(ff_size) = config_json.get("ff_intermediate_size").cloned() {
+                    config_json["intermediate_size"] = ff_size;
+                }
+            }
+            
+            // Phi-3-small uses layer_norm_epsilon instead of rms_norm_eps
+            if config_json.get("layer_norm_epsilon").is_some() && config_json.get("rms_norm_eps").is_none() {
+                if let Some(eps) = config_json.get("layer_norm_epsilon").cloned() {
+                    config_json["rms_norm_eps"] = eps;
+                }
+            }
+            
+            // Handle rope_scaling for long context models (Phi-3-mini-128k)
+            // Candle expects rope_scaling to be a string, but newer configs have it as an object
+            if let Some(rope_scaling) = config_json.get("rope_scaling") {
+                if rope_scaling.is_object() {
+                    // For now, just convert to the type string - candle will use default scaling
+                    if let Some(scaling_type) = rope_scaling.get("type").and_then(|v| v.as_str()) {
+                        config_json["rope_scaling"] = serde_json::Value::String(scaling_type.to_string());
+                    } else {
+                        // Remove it if we can't determine the type
+                        config_json.as_object_mut().unwrap().remove("rope_scaling");
+                    }
+                }
+            }
+            
+            // Phi-3-small uses rope_embedding_base instead of rope_theta
+            if config_json.get("rope_embedding_base").is_some() && config_json.get("rope_theta").is_none() {
+                if let Some(rope_base) = config_json.get("rope_embedding_base").cloned() {
+                    config_json["rope_theta"] = rope_base;
+                }
+            }
+            
+            config_str_fixed = serde_json::to_string(&config_json)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to serialize config: {}", e)))?;
+            
+            // Check for unsupported gegelu activation
+            if config_str_fixed.contains("\"gegelu\"") {
+                // For now, map gegelu to gelu_pytorch_tanh with a warning
+                // This is not ideal but allows the model to at least load
+                eprintln!("WARNING: This model uses 'gegelu' activation which is not fully supported.");
+                eprintln!("         Mapping to 'gelu_pytorch_tanh' - results may be degraded.");
+                eprintln!("         For best results, use Phi-3-mini models instead.");
+                config_str_fixed = config_str_fixed.replace("\"gegelu\"", "\"gelu_pytorch_tanh\"");
+            }
+            
+            let config: Phi3Config = serde_json::from_str(&config_str_fixed)
                 .map_err(|e| candle_core::Error::Msg(format!("Failed to parse Phi3 config: {}", e)))?;
             
             let vb = unsafe {
@@ -133,6 +196,11 @@ impl Phi {
             model_id: model_id.to_string(),
             eos_token_id,
         })
+    }
+
+    /// Load a Phi model from HuggingFace (backwards compatibility)
+    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+        Self::from_pretrained_with_tokenizer(model_id, device, None).await
     }
     
     /// Apply Phi chat template to messages

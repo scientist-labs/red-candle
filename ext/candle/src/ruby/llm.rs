@@ -257,14 +257,15 @@ impl LLM {
         let model_lower = model_id.to_lowercase();
         let is_quantized = model_lower.contains("gguf") || model_lower.contains("-q4") || model_lower.contains("-q5") || model_lower.contains("-q8");
         
+        // Extract tokenizer source if provided in model_id (for both GGUF and regular models)
+        let (model_id_clean, tokenizer_source) = if let Some(pos) = model_id.find("@@") {
+            let (id, _tok) = model_id.split_at(pos);
+            (id.to_string(), Some(&model_id[pos+2..]))
+        } else {
+            (model_id.clone(), None)
+        };
+
         let model = if is_quantized {
-            // Extract tokenizer source if provided in model_id
-            let (model_id_clean, tokenizer_source) = if let Some(pos) = model_id.find("@@") {
-                let (id, _tok) = model_id.split_at(pos);
-                (id.to_string(), Some(&model_id[pos+2..]))
-            } else {
-                (model_id.clone(), None)
-            };
             
             // Use unified GGUF loader for all quantized models
             let gguf_model = rt.block_on(async {
@@ -273,41 +274,73 @@ impl LLM {
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load GGUF model: {}", e)))?;
             ModelType::QuantizedGGUF(gguf_model)
         } else {
-            // Load non-quantized models
-            if model_lower.contains("mistral") {
-                let mistral = rt.block_on(async {
-                    RustMistral::from_pretrained(&model_id, candle_device).await
-                })
+            // Load non-quantized models based on type
+            let model_lower_clean = model_id_clean.to_lowercase();
+            
+            if model_lower_clean.contains("mistral") {
+                let mistral = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustMistral::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustMistral::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
                 ModelType::Mistral(mistral)
-            } else if model_lower.contains("llama") || model_lower.contains("meta-llama") || model_lower.contains("tinyllama") {
-                let llama = rt.block_on(async {
-                    RustLlama::from_pretrained(&model_id, candle_device).await
-                })
+            } else if model_lower_clean.contains("llama") || model_lower_clean.contains("meta-llama") || model_lower_clean.contains("tinyllama") {
+                let llama = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustLlama::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustLlama::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
                 ModelType::Llama(llama)
-            } else if model_lower.contains("gemma") || model_lower.contains("google/gemma") {
-                let gemma = rt.block_on(async {
-                    RustGemma::from_pretrained(&model_id, candle_device).await
-                })
+            } else if model_lower_clean.contains("gemma") || model_lower_clean.contains("google/gemma") {
+                let gemma = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustGemma::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustGemma::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
                 ModelType::Gemma(gemma)
-            } else if model_lower.contains("qwen") {
-                let qwen = rt.block_on(async {
-                    RustQwen::from_pretrained(&model_id, candle_device).await
-                })
+            } else if model_lower_clean.contains("qwen") {
+                let qwen = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustQwen::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustQwen::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
                 ModelType::Qwen(qwen)
-            } else if model_lower.contains("phi") {
-                let phi = rt.block_on(async {
-                    RustPhi::from_pretrained(&model_id, candle_device).await
-                })
+            } else if model_lower_clean.contains("phi") {
+                let phi = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustPhi::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustPhi::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to load model: {}", e)))?;
                 ModelType::Phi(phi)
             } else {
                 return Err(Error::new(
                     magnus::exception::runtime_error(),
-                    format!("Unsupported model type: {}. Currently Mistral, Llama, Gemma, Qwen, and Phi models are supported.", model_id),
+                    format!("Unsupported model type: {}. Currently Mistral, Llama, Gemma, Qwen, and Phi models are supported.", model_id_clean),
                 ));
             }
         };

@@ -30,8 +30,8 @@ impl Gemma {
         &self.tokenizer
     }
     
-    /// Load a Gemma model from HuggingFace Hub
-    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+    /// Load a Gemma model from HuggingFace Hub with optional custom tokenizer
+    pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
         
@@ -43,10 +43,23 @@ impl Gemma {
             .await
             .map_err(|e| candle_core::Error::Msg(format!("Failed to download config: {}", e)))?;
         
-        let tokenizer_filename = repo
-            .get("tokenizer.json")
-            .await
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+        // Download tokenizer from custom source if provided, otherwise from model repo
+        let tokenizer = if let Some(tokenizer_id) = tokenizer_source {
+            let tokenizer_repo = api.repo(Repo::model(tokenizer_id.to_string()));
+            let tokenizer_filename = tokenizer_repo
+                .get("tokenizer.json")
+                .await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer from {}: {}", tokenizer_id, e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        } else {
+            let tokenizer_filename = repo
+                .get("tokenizer.json")
+                .await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        };
         
         // Try different file patterns for model weights
         let weights_filenames = if let Ok(single_file) = repo.get("model.safetensors").await {
@@ -87,9 +100,6 @@ impl Gemma {
         let config: Config = serde_json::from_reader(std::fs::File::open(config_filename)?)
             .map_err(|e| candle_core::Error::Msg(format!("Failed to parse config: {}", e)))?;
         
-        // Load tokenizer
-        let tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?;
         
         // Gemma uses specific tokens
         let eos_token_id = {
@@ -114,6 +124,11 @@ impl Gemma {
             model_id: model_id.to_string(),
             eos_token_id,
         })
+    }
+
+    /// Load a Gemma model from HuggingFace Hub (backwards compatibility)
+    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+        Self::from_pretrained_with_tokenizer(model_id, device, None).await
     }
 
     /// Create from existing components (useful for testing)

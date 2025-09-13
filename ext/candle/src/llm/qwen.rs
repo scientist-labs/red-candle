@@ -30,8 +30,8 @@ impl Qwen {
         self.model.clear_kv_cache();
     }
     
-    /// Load a Qwen model from HuggingFace
-    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+    /// Load a Qwen model from HuggingFace with optional custom tokenizer
+    pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
         
@@ -44,19 +44,27 @@ impl Qwen {
         let config: Config = serde_json::from_str(&config_str)
             .map_err(|e| candle_core::Error::Msg(format!("Failed to parse config: {}", e)))?;
         
-        // Download tokenizer
-        let tokenizer_filename = repo.get("tokenizer.json").await
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
-        let tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?;
+        // Download tokenizer from custom source if provided, otherwise from model repo
+        let tokenizer = if let Some(tokenizer_id) = tokenizer_source {
+            let tokenizer_repo = api.model(tokenizer_id.to_string());
+            let tokenizer_filename = tokenizer_repo.get("tokenizer.json").await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer from {}: {}", tokenizer_id, e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        } else {
+            let tokenizer_filename = repo.get("tokenizer.json").await
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+        };
         
         // Determine EOS token
         let vocab = tokenizer.get_vocab(true);
-        let eos_token_id = vocab.get("<|endoftext|>")
-            .or_else(|| vocab.get("<|im_end|>"))
+        let eos_token_id = vocab.get("<|im_end|>")
+            .or_else(|| vocab.get("<|endoftext|>"))
             .or_else(|| vocab.get("</s>"))
             .copied()
-            .unwrap_or(151643); // Default Qwen3 EOS token
+            .unwrap_or(151645); // Default Qwen2.5 EOS token
         
         // Download model weights
         // NOTE: Qwen uses hardcoded shard counts based on model size rather than
@@ -95,6 +103,11 @@ impl Qwen {
             model_id: model_id.to_string(),
             eos_token_id,
         })
+    }
+    
+    /// Load a Qwen model from HuggingFace (backwards compatibility)
+    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+        Self::from_pretrained_with_tokenizer(model_id, device, None).await
     }
     
     /// Apply Qwen chat template to messages

@@ -30,8 +30,8 @@ impl Mistral {
         &self.tokenizer
     }
     
-    /// Load a Mistral model from HuggingFace Hub
-    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+    /// Load a Mistral model from HuggingFace Hub with optional custom tokenizer
+    pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
         
@@ -43,10 +43,45 @@ impl Mistral {
             .await
             .map_err(|e| candle_core::Error::Msg(format!("Failed to download config: {}", e)))?;
         
-        let tokenizer_filename = repo
-            .get("tokenizer.json")
-            .await
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+        // Download tokenizer from custom source if provided, otherwise from model repo
+        let tokenizer = if let Some(tokenizer_id) = tokenizer_source {
+            let tokenizer_repo = api.repo(Repo::model(tokenizer_id.to_string()));
+            let tokenizer_filename = tokenizer_repo
+                .get("tokenizer.json")
+                .await
+                .map_err(|e| {
+                    let error_msg = if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        format!("Tokenizer file 'tokenizer.json' not found in repository '{}'. The repository may not have a tokenizer.json file or may use a different format (e.g., tokenizer.model for SentencePiece).", tokenizer_id)
+                    } else if e.to_string().contains("401") || e.to_string().contains("Unauthorized") {
+                        format!("Authentication required to access tokenizer '{}'. You may need to set HF_TOKEN environment variable with a valid Hugging Face token.", tokenizer_id)
+                    } else if e.to_string().contains("timed out") || e.to_string().contains("connection") {
+                        format!("Network error downloading tokenizer from '{}': {}. Please check your internet connection.", tokenizer_id, e)
+                    } else {
+                        format!("Failed to download tokenizer from '{}': {}", tokenizer_id, e)
+                    };
+                    candle_core::Error::Msg(error_msg)
+                })?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer file: {}", e)))?
+        } else {
+            let tokenizer_filename = repo
+                .get("tokenizer.json")
+                .await
+                .map_err(|e| {
+                    let error_msg = if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        format!("No tokenizer found in model repository '{}'. The model may not include a tokenizer. Try specifying a tokenizer explicitly using the 'tokenizer' parameter, e.g.: from_pretrained('{}', tokenizer: 'mistralai/Mistral-7B-Instruct-v0.2')", model_id, model_id)
+                    } else if e.to_string().contains("401") || e.to_string().contains("Unauthorized") {
+                        format!("Authentication required to access model '{}'. You may need to set HF_TOKEN environment variable with a valid Hugging Face token.", model_id)
+                    } else if e.to_string().contains("timed out") || e.to_string().contains("connection") {
+                        format!("Network error downloading tokenizer: {}. Please check your internet connection.", e)
+                    } else {
+                        format!("Failed to download tokenizer: {}", e)
+                    };
+                    candle_core::Error::Msg(error_msg)
+                })?;
+            Tokenizer::from_file(tokenizer_filename)
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer file: {}", e)))?
+        };
         
         // Try different file patterns for model weights
         let weights_filenames = if let Ok(single_file) = repo.get("model.safetensors").await {
@@ -97,10 +132,6 @@ impl Mistral {
         let config: Config = serde_json::from_reader(std::fs::File::open(config_filename)?)
             .map_err(|e| candle_core::Error::Msg(format!("Failed to parse config: {}", e)))?;
         
-        // Load tokenizer
-        let tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?;
-        
         let eos_token_id = tokenizer
             .get_vocab(true)
             .get("</s>")
@@ -121,6 +152,11 @@ impl Mistral {
             model_id: model_id.to_string(),
             eos_token_id,
         })
+    }
+
+    /// Load a Mistral model from HuggingFace Hub (backwards compatibility)
+    pub async fn from_pretrained(model_id: &str, device: Device) -> CandleResult<Self> {
+        Self::from_pretrained_with_tokenizer(model_id, device, None).await
     }
 
     /// Create from existing components (useful for testing)

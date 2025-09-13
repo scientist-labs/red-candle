@@ -32,7 +32,7 @@ red-candle/lib/candle/llm.rb:32:in `_from_pretrained': Failed to load model: Fai
 	from /Users/robert/.rbenv/versions/3.3.8/lib/ruby/site_ruby/3.3.0/bundler/vendor/thor/lib/thor/base.rb:584:in `start'
 	from /Users/robert/.rbenv/versions/3.3.8/lib/ruby/site_ruby/3.3.0/bundler/cli.rb:29:in `start'
 	... 5 levels...
-irb(main):020> 
+irb(main):020>
 ```
 
 ## To authenticate
@@ -43,7 +43,7 @@ You have two options:
 
 You can authenticate by running the following command:
 ```sh
-huggingface login
+huggingface-cli login
 ```
 
 ### Option 2:Create a token file
