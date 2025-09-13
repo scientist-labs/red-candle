@@ -49,16 +49,38 @@ impl Mistral {
             let tokenizer_filename = tokenizer_repo
                 .get("tokenizer.json")
                 .await
-                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer from {}: {}", tokenizer_id, e)))?;
+                .map_err(|e| {
+                    let error_msg = if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        format!("Tokenizer file 'tokenizer.json' not found in repository '{}'. The repository may not have a tokenizer.json file or may use a different format (e.g., tokenizer.model for SentencePiece).", tokenizer_id)
+                    } else if e.to_string().contains("401") || e.to_string().contains("Unauthorized") {
+                        format!("Authentication required to access tokenizer '{}'. You may need to set HF_TOKEN environment variable with a valid Hugging Face token.", tokenizer_id)
+                    } else if e.to_string().contains("timed out") || e.to_string().contains("connection") {
+                        format!("Network error downloading tokenizer from '{}': {}. Please check your internet connection.", tokenizer_id, e)
+                    } else {
+                        format!("Failed to download tokenizer from '{}': {}", tokenizer_id, e)
+                    };
+                    candle_core::Error::Msg(error_msg)
+                })?;
             Tokenizer::from_file(tokenizer_filename)
-                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer file: {}", e)))?
         } else {
             let tokenizer_filename = repo
                 .get("tokenizer.json")
                 .await
-                .map_err(|e| candle_core::Error::Msg(format!("Failed to download tokenizer: {}", e)))?;
+                .map_err(|e| {
+                    let error_msg = if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        format!("No tokenizer found in model repository '{}'. The model may not include a tokenizer. Try specifying a tokenizer explicitly using the 'tokenizer' parameter, e.g.: from_pretrained('{}', tokenizer: 'mistralai/Mistral-7B-Instruct-v0.2')", model_id, model_id)
+                    } else if e.to_string().contains("401") || e.to_string().contains("Unauthorized") {
+                        format!("Authentication required to access model '{}'. You may need to set HF_TOKEN environment variable with a valid Hugging Face token.", model_id)
+                    } else if e.to_string().contains("timed out") || e.to_string().contains("connection") {
+                        format!("Network error downloading tokenizer: {}. Please check your internet connection.", e)
+                    } else {
+                        format!("Failed to download tokenizer: {}", e)
+                    };
+                    candle_core::Error::Msg(error_msg)
+                })?;
             Tokenizer::from_file(tokenizer_filename)
-                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer: {}", e)))?
+                .map_err(|e| candle_core::Error::Msg(format!("Failed to load tokenizer file: {}", e)))?
         };
         
         // Try different file patterns for model weights
