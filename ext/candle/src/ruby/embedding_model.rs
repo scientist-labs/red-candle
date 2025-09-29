@@ -11,7 +11,8 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::{
     bert::{BertModel as StdBertModel, Config as BertConfig},
     jina_bert::{BertModel as JinaBertModel, Config as JinaConfig},
-    distilbert::{DistilBertModel, Config as DistilBertConfig}
+    distilbert::{DistilBertModel, Config as DistilBertConfig},
+    modernbert::{ModernBertModel, Config as ModernBertConfig}
 };
 use magnus::{class, function, method, prelude::*, Error, RModule, RHash};
 use std::path::Path;
@@ -28,6 +29,7 @@ pub enum EmbeddingModelType {
     StandardBert,
     DistilBert,
     MiniLM,
+    ModernBert
 }
 
 impl EmbeddingModelType {
@@ -36,8 +38,8 @@ impl EmbeddingModelType {
             "jina_bert" | "jinabert" | "jina" => Some(EmbeddingModelType::JinaBert),
             "bert" | "standard_bert" | "standardbert" => Some(EmbeddingModelType::StandardBert),
             "minilm" => Some(EmbeddingModelType::MiniLM),
-    
             "distilbert" => Some(EmbeddingModelType::DistilBert),
+            "modernbert" | "modern_bert" => Some(EmbeddingModelType::ModernBert),
             _ => None
         }
     }
@@ -49,7 +51,7 @@ pub enum EmbeddingModelVariant {
     StandardBert(StdBertModel),
     DistilBert(DistilBertModel),
     MiniLM(StdBertModel),
-
+    ModernBert(ModernBertModel),
 }
 
 impl EmbeddingModelVariant {
@@ -59,7 +61,7 @@ impl EmbeddingModelVariant {
             EmbeddingModelVariant::StandardBert(_) => EmbeddingModelType::StandardBert,
             EmbeddingModelVariant::DistilBert(_) => EmbeddingModelType::DistilBert,
             EmbeddingModelVariant::MiniLM(_) => EmbeddingModelType::MiniLM,
-    
+            EmbeddingModelVariant::ModernBert(_) => EmbeddingModelType::ModernBert,
         }
     }
 }
@@ -253,7 +255,27 @@ impl EmbeddingModel {
                 let model = StdBertModel::load(vb, &config).map_err(wrap_candle_err)?;
                 Ok(EmbeddingModelVariant::MiniLM(model))
             },
-
+            EmbeddingModelType::ModernBert => {
+                let model_path = api.repo(repo.clone()).get("model.safetensors").map_err(wrap_hf_err)?;
+                if !std::path::Path::new(&model_path).exists() {
+                    return Err(magnus::Error::new(
+                        magnus::exception::runtime_error(),
+                        "model.safetensors not found after download. Only safetensors models are supported. Please ensure your model repo contains model.safetensors."
+                    ));
+                }
+                let config_path = api.repo(repo.clone()).get("config.json").map_err(wrap_hf_err)?;
+                let config_file = std::fs::File::open(&config_path).map_err(|e| wrap_std_err(Box::new(e)))?;
+                let mut config: ModernBertConfig = serde_json::from_reader(config_file).map_err(|e| wrap_std_err(Box::new(e)))?;
+                if let Some(embedding_size) = embedding_size {
+                    config.hidden_size = embedding_size;
+                }
+                let vb = unsafe {
+                    VarBuilder::from_mmaped_safetensors(&[model_path], CoreDType::F32, &device)
+                        .map_err(wrap_candle_err)?
+                };
+                let model = ModernBertModel::new(&config, vb).map_err(wrap_candle_err)?;
+                Ok(EmbeddingModelVariant::ModernBert(model))
+            },
         }
     }
 
@@ -269,7 +291,7 @@ impl EmbeddingModel {
                 .map_err(wrap_hf_err)?;
         let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
             .map_err(wrap_std_err)?;
-        
+
         let tokenizer = TokenizerLoader::with_padding(tokenizer, None);
         Ok(TokenizerWrapper::new(tokenizer))
     }
@@ -279,18 +301,18 @@ impl EmbeddingModel {
     fn pooled_cls_embedding(result: &CoreTensor) -> std::result::Result<CoreTensor, Error> {
         // 1) sanity-check that we have a 3D tensor
         let (_batch, _seq_len, _hidden_size) = result.dims3().map_err(wrap_candle_err)?;
-    
+
         // 2) slice out just the first token (CLS) along the sequence axis:
         //    [B, seq_len, H] → [B, 1, H]
         let first = result
             .narrow(1, 0, 1)
             .map_err(wrap_candle_err)?;
-    
+
         // 3) remove that length-1 axis → [B, H]
         let cls = first
             .squeeze(1)
             .map_err(wrap_candle_err)?;
-    
+
         Ok(cls)
     }
 
@@ -339,7 +361,9 @@ impl EmbeddingModel {
             EmbeddingModelVariant::MiniLM(model) => {
                 model.forward(&token_ids, &token_type_ids, Some(&attention_mask)).map_err(wrap_candle_err)
             },
-
+            EmbeddingModelVariant::ModernBert(model) => {
+                model.forward(&token_ids, Some(&attention_mask)).map_err(wrap_candle_err)
+            },
         }
     }
 
@@ -375,8 +399,8 @@ impl EmbeddingModel {
     pub fn __repr__(&self) -> String {
         format!(
             "#<Candle::EmbeddingModel model_type: {}, model_id: {}, tokenizer: {}, embedding_size: {}>",
-            self.model_type(), 
-            self.0.model_id.as_deref().unwrap_or("nil"), 
+            self.model_type(),
+            self.0.model_id.as_deref().unwrap_or("nil"),
             self.0.tokenizer_id.as_deref().unwrap_or("nil"),
             self.0.embedding_size.map(|x| x.to_string()).unwrap_or("nil".to_string())
         )
@@ -393,7 +417,7 @@ impl EmbeddingModel {
             None => Err(magnus::Error::new(magnus::exception::runtime_error(), "No tokenizer loaded for this model"))
         }
     }
-    
+
     /// Get the model_id
     pub fn model_id(&self) -> Result<String> {
         match &self.0.model_id {
@@ -401,39 +425,39 @@ impl EmbeddingModel {
             None => Ok("unknown".to_string())
         }
     }
-    
+
     /// Get the device
     pub fn device(&self) -> Device {
         Device::from_device(&self.0.device)
     }
-    
+
     /// Get all options as a hash
     pub fn options(&self) -> Result<RHash> {
         let hash = RHash::new();
-        
+
         // Add model_id
         if let Some(model_id) = &self.0.model_id {
             hash.aset("model_id", model_id.clone())?;
         }
-        
+
         // Add tokenizer
         if let Some(tokenizer_id) = &self.0.tokenizer_id {
             hash.aset("tokenizer", tokenizer_id.clone())?;
         }
-        
+
         // Add device
         hash.aset("device", self.device().__str__())?;
-        
+
         // Add model_type
         if let Some(model_type) = &self.0.model_type {
             hash.aset("model_type", format!("{:?}", model_type))?;
         }
-        
+
         // Add embedding_size
         if let Some(size) = self.0.embedding_size {
             hash.aset("embedding_size", size)?;
         }
-        
+
         Ok(hash)
     }
 }

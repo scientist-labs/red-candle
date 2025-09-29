@@ -26,6 +26,8 @@ module Candle
           "distilbert"
         when /minilm/
           "minilm"
+        when /modernbert|modern_bert/
+          "modernbert"
         else
           "standard_bert"
         end

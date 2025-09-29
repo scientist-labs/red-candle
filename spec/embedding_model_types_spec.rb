@@ -14,7 +14,7 @@ RSpec.describe "EmbeddingModelTypes" do
     )
     expect(model).not_to be_nil, "EmbeddingModel should be initialized for #{model_type}"
   end
-  
+
   # Clear any cached models after all tests
   after(:all) do
     GC.start
@@ -50,6 +50,14 @@ RSpec.describe "EmbeddingModelTypes" do
     it "initializes correctly" do
       model_type = Candle::EmbeddingModelType::DISTILBERT
       model_option = { model_path: "scientistcom/distilbert-base-uncased-finetuned-sst-2-english", embedding_size: 768 }
+      initialize_embedding_model_for_type(model_type, model_option)
+    end
+  end
+
+  describe "MODERN_BERT" do
+    it "initializes correctly" do
+      model_type = Candle::EmbeddingModelType::MODERN_BERT
+      model_option = { model_path: "answerdotai/ModernBERT-base", embedding_size: 768 }
       initialize_embedding_model_for_type(model_type, model_option)
     end
   end
