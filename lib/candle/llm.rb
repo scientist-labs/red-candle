@@ -39,7 +39,17 @@ module Candle
       # Extract the tokenizer source model ID for proper vocabulary loading
       tokenizer_model = tokenizer_source_model
       if tokenizer_model
-        StructuredConstraint.from_schema_with_model(schema_str, tokenizer_model)
+        begin
+          StructuredConstraint.from_schema_with_model(schema_str, tokenizer_model)
+        rescue RuntimeError => e
+          # Fall back to legacy method if from_pretrained fails
+          # (e.g., tokenizer doesn't have EOS token in expected format)
+          if e.message.include?("UnsupportedTokenizer")
+            StructuredConstraint.from_schema(schema_str, tokenizer)
+          else
+            raise
+          end
+        end
       else
         # Fall back to legacy method if we can't determine the model
         StructuredConstraint.from_schema(schema_str, tokenizer)
@@ -54,7 +64,16 @@ module Candle
       # Extract the tokenizer source model ID for proper vocabulary loading
       tokenizer_model = tokenizer_source_model
       if tokenizer_model
-        StructuredConstraint.from_regex_with_model(pattern_str, tokenizer_model)
+        begin
+          StructuredConstraint.from_regex_with_model(pattern_str, tokenizer_model)
+        rescue RuntimeError => e
+          # Fall back to legacy method if from_pretrained fails
+          if e.message.include?("UnsupportedTokenizer")
+            StructuredConstraint.from_regex(pattern_str, tokenizer)
+          else
+            raise
+          end
+        end
       else
         # Fall back to legacy method if we can't determine the model
         StructuredConstraint.from_regex(pattern_str, tokenizer)
