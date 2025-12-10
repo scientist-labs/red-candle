@@ -259,9 +259,90 @@ RSpec.describe "StructuredGeneration" do
         max_length: 100,
         constraint: nil  # Would be a StructuredConstraint in real usage
       )
-      
+
       expect(config.temperature).to eq(0.7)
       expect(config.max_length).to eq(100)
+    end
+  end
+
+  describe "StructuredConstraint.from_schema_with_model" do
+    # This tests the fix for GPT-2 byte encoding where models like Qwen
+    # use different byte representations than SentencePiece models.
+    # Note: Models must have EOS token defined for Vocabulary::from_pretrained
+
+    it "creates constraint using SentencePiece model vocabulary" do
+      schema = JSON.generate({
+        type: 'object',
+        properties: {
+          answer: { type: 'string', enum: ['yes', 'no'] }
+        },
+        required: ['answer']
+      })
+
+      # TinyLlama uses SentencePiece tokenization
+      constraint = Candle::StructuredConstraint.from_schema_with_model(
+        schema,
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+      )
+
+      expect(constraint).to be_a(Candle::StructuredConstraint)
+    end
+
+    it "creates constraint using GPT-2 style model vocabulary" do
+      schema = JSON.generate({
+        type: 'object',
+        properties: {
+          value: { type: 'integer' }
+        },
+        required: ['value']
+      })
+
+      # Qwen uses GPT-2 style byte encoding (Ġ for space, etc.)
+      constraint = Candle::StructuredConstraint.from_schema_with_model(
+        schema,
+        "Qwen/Qwen2.5-0.5B"
+      )
+
+      expect(constraint).to be_a(Candle::StructuredConstraint)
+    end
+
+    it "works with different tokenizer types" do
+      schema = JSON.generate({
+        type: 'object',
+        properties: {
+          name: { type: 'string' }
+        },
+        required: ['name']
+      })
+
+      # Test with SentencePiece model (TinyLlama uses SentencePiece)
+      constraint_sp = Candle::StructuredConstraint.from_schema_with_model(
+        schema,
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+      )
+      expect(constraint_sp).to be_a(Candle::StructuredConstraint)
+
+      # Test with GPT-2 style model (Qwen uses GPT-2 byte encoding)
+      constraint_gpt2 = Candle::StructuredConstraint.from_schema_with_model(
+        schema,
+        "Qwen/Qwen2.5-0.5B"
+      )
+      expect(constraint_gpt2).to be_a(Candle::StructuredConstraint)
+    end
+  end
+
+  describe "StructuredConstraint.from_regex_with_model" do
+    it "creates regex constraint using model vocabulary" do
+      # Simple digit pattern
+      pattern = '\d+'
+
+      # Use a model with proper EOS token
+      constraint = Candle::StructuredConstraint.from_regex_with_model(
+        pattern,
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+      )
+
+      expect(constraint).to be_a(Candle::StructuredConstraint)
     end
   end
 end

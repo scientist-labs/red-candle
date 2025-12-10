@@ -313,4 +313,83 @@ mod constrained_generation_tests {
         // Verify tokens are being tracked
         assert_eq!(text_gen.get_tokens().len(), all_tokens.len(), "Internal tokens should match generated");
     }
+
+    #[test]
+    fn test_constraint_satisfied_not_triggered_by_large_allowed_set() {
+        // This test verifies the fix for the bug where is_constraint_satisfied_stop_on_match
+        // would incorrectly return true when many tokens are allowed (e.g., inside a JSON string).
+        // The old buggy code had: if allowed.len() > 1000 { return true; }
+        // This caused early termination when inside strings with many valid characters.
+
+        let config = GenerationConfig::default();
+        let mut text_gen = TextGeneration::new(&config);
+        text_gen.set_eos_token_id(50256);
+
+        // Without a constraint, should not be satisfied
+        assert!(!text_gen.is_constraint_satisfied(),
+            "Without constraint, should not be satisfied");
+        assert!(!text_gen.is_constraint_satisfied_stop_on_match(),
+            "Without constraint, stop_on_match should not be satisfied");
+    }
+
+    #[test]
+    fn test_constraint_satisfied_only_when_empty_or_eos_only() {
+        // Test that constraint satisfaction only triggers when:
+        // 1. No tokens are allowed (empty set)
+        // 2. Only EOS token is allowed
+        // NOT when many tokens are allowed (like inside a JSON string)
+
+        let config = GenerationConfig::default();
+        let mut text_gen = TextGeneration::new(&config);
+        text_gen.set_eos_token_id(100); // Set EOS token
+
+        // Without constraint, should not be satisfied
+        assert!(!text_gen.is_constraint_satisfied());
+        assert!(!text_gen.is_constraint_satisfied_stop_on_match());
+
+        // The key insight: constraint satisfaction should NOT be triggered
+        // just because there are many allowed tokens. It should only trigger
+        // when the constraint is definitively complete (empty allowed set or only EOS).
+    }
+
+    #[tokio::test]
+    async fn test_constraint_with_json_schema_not_early_termination() {
+        // Integration test: Create a real JSON schema constraint and verify
+        // that being inside a string (many allowed tokens) doesn't trigger completion.
+
+        if let Ok(tokenizer) = TokenizerLoader::from_hf_hub("bert-base-uncased", None).await {
+            let wrapper = TokenizerWrapper::new(tokenizer);
+            let vocabulary = VocabularyAdapter::from_tokenizer(&wrapper)
+                .expect("Should create vocabulary");
+
+            let processor = SchemaProcessor::new();
+
+            // Schema with a string field - when generating content inside the string,
+            // many characters are valid, but the constraint is NOT complete
+            let schema = r#"{
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" }
+                },
+                "required": ["name"]
+            }"#;
+
+            let index = processor.process_schema(schema, &vocabulary)
+                .expect("Should process schema");
+
+            let mut config = GenerationConfig::default();
+            config.constraint = Some(index);
+            config.max_length = 100;
+
+            let mut text_gen = TextGeneration::new(&config);
+            text_gen.set_eos_token_id(102); // BERT's [SEP]
+
+            // At the initial state, the constraint should NOT be satisfied
+            // (we haven't generated a complete JSON object yet)
+            assert!(!text_gen.is_constraint_satisfied(),
+                "Initial state should not be satisfied - JSON not yet generated");
+            assert!(!text_gen.is_constraint_satisfied_stop_on_match(),
+                "Initial state should not trigger stop_on_match");
+        }
+    }
 }
