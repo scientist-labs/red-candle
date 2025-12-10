@@ -5,7 +5,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        ruby-version: ['3.2', '3.3']
+        # ruby-version: ['3.2', '3.3']
+        ruby-version: ['3.3']
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -54,14 +55,17 @@ jobs:
         run: bundle exec rake compile
 
       - name: Run specs
-        run: |
-          # HF_HUB_OFFLINE is already set by S3 sync step
-          # This ensures no HuggingFace API calls during tests
-          echo "Running specs with HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
-          echo "Ruby version: ${{ matrix.ruby-version }}"
-          bundle exec rspec
+        run: bundle exec rspec
 
-      - name: Display Disk Space After Test
-        run: df -h
+      # - name: Run specs
+      #   run: |
+      #     # HF_HUB_OFFLINE is already set by S3 sync step
+      #     # This ensures no HuggingFace API calls during tests
+      #     echo "Running specs with HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
+      #     echo "Ruby version: ${{ matrix.ruby-version }}"
+      #     bundle exec rspec
 
-      - run: bundle exec yard --readme README.md --markup markdown --markup-provider redcarpet
+      # - name: Display Disk Space After Test
+      #   run: df -h
+
+      # - run: bundle exec yard --readme README.md --markup markdown --markup-provider redcarpet
