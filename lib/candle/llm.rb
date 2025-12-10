@@ -32,16 +32,90 @@ module Candle
       end
     end
     # Create a structured constraint from a JSON schema
+    # Uses the model's vocabulary with proper byte encoding handling
     def constraint_from_schema(schema)
       schema_str = schema.is_a?(String) ? schema : JSON.generate(schema)
-      StructuredConstraint.from_schema(schema_str, tokenizer)
+
+      # Extract the tokenizer source model ID for proper vocabulary loading
+      tokenizer_model = tokenizer_source_model
+      if tokenizer_model
+        begin
+          StructuredConstraint.from_schema_with_model(schema_str, tokenizer_model)
+        rescue RuntimeError => e
+          # Fall back to legacy method if from_pretrained fails
+          # (e.g., tokenizer doesn't have EOS token in expected format)
+          if e.message.include?("UnsupportedTokenizer")
+            StructuredConstraint.from_schema(schema_str, tokenizer)
+          else
+            raise
+          end
+        end
+      else
+        # Fall back to legacy method if we can't determine the model
+        StructuredConstraint.from_schema(schema_str, tokenizer)
+      end
     end
-    
+
     # Create a structured constraint from a regex pattern
+    # Uses the model's vocabulary with proper byte encoding handling
     def constraint_from_regex(pattern)
       pattern_str = pattern.is_a?(Regexp) ? pattern.source : pattern.to_s
-      StructuredConstraint.from_regex(pattern_str, tokenizer)
+
+      # Extract the tokenizer source model ID for proper vocabulary loading
+      tokenizer_model = tokenizer_source_model
+      if tokenizer_model
+        begin
+          StructuredConstraint.from_regex_with_model(pattern_str, tokenizer_model)
+        rescue RuntimeError => e
+          # Fall back to legacy method if from_pretrained fails
+          if e.message.include?("UnsupportedTokenizer")
+            StructuredConstraint.from_regex(pattern_str, tokenizer)
+          else
+            raise
+          end
+        end
+      else
+        # Fall back to legacy method if we can't determine the model
+        StructuredConstraint.from_regex(pattern_str, tokenizer)
+      end
     end
+
+    private
+
+    # Get the model ID to use for vocabulary loading
+    # This handles GGUF models by extracting the tokenizer source
+    def tokenizer_source_model
+      opts = options rescue {}
+
+      # For GGUF models, use the tokenizer source if available
+      if opts["tokenizer_source"]
+        return opts["tokenizer_source"]
+      end
+
+      # For regular models, use the base model ID
+      if opts["base_model"]
+        return opts["base_model"]
+      end
+
+      # Try model_id but strip GGUF parts
+      model = opts["model_id"] || (model_id rescue nil)
+      return nil unless model
+
+      # Remove GGUF file suffix if present
+      if model.include?("@")
+        model = model.split("@").first
+      end
+
+      # For GGUF repos, try to guess the tokenizer source
+      if model.downcase.include?("gguf")
+        guessed = self.class.guess_tokenizer(model)
+        return guessed if guessed && guessed != model
+      end
+
+      model
+    end
+
+    public
     
     # Generate with regex constraint
     def generate_regex(prompt, pattern:, stop_on_match: true, **options)

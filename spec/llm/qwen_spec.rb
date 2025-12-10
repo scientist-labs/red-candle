@@ -121,10 +121,124 @@ RSpec.describe "Qwen LLM" do
   describe "metadata" do
     it "has expected model methods" do
       skip unless @model_loaded == true
-      
+
       expect(@llm).to respond_to(:generate)
       expect(@llm).to respond_to(:chat)
       expect(@llm).to respond_to(:apply_chat_template)
+    end
+  end
+
+  describe "structured generation" do
+    # These tests verify the fix for GPT-2 byte encoding in Qwen models.
+    # Qwen uses GPT-2 tokenization where special bytes are represented differently
+    # than SentencePiece (e.g., Ġ for space byte vs ▁).
+
+    it "generates valid JSON with string fields" do
+      skip unless @model_loaded == true
+
+      schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        },
+        required: ['name', 'age']
+      }
+
+      result = @llm.generate_structured(
+        "Generate a person object for Bob who is 35 years old.",
+        schema: schema,
+        max_length: 50
+      )
+
+      expect(result).to be_a(Hash), "Expected Hash but got #{result.class}: #{result.inspect}"
+      expect(result).to have_key("name")
+      expect(result).to have_key("age")
+      expect(result["name"]).to be_a(String)
+      expect(result["age"]).to be_a(Integer)
+    end
+
+    it "generates valid JSON with enum fields" do
+      skip unless @model_loaded == true
+
+      schema = {
+        type: 'object',
+        properties: {
+          answer: { type: 'string', enum: ['yes', 'no'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 }
+        },
+        required: ['answer', 'confidence']
+      }
+
+      result = @llm.generate_structured(
+        "Is Ruby a programming language?",
+        schema: schema,
+        max_length: 50
+      )
+
+      expect(result).to be_a(Hash), "Expected Hash but got #{result.class}: #{result.inspect}"
+      expect(['yes', 'no']).to include(result['answer'])
+      expect(result['confidence']).to be_a(Numeric)
+    end
+
+    it "does not produce truncated JSON output" do
+      skip unless @model_loaded == true
+
+      # This test specifically checks the bug where Qwen would produce
+      # truncated output like '{"name":",' due to early constraint termination
+      schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          city: { type: 'string' }
+        },
+        required: ['name', 'city']
+      }
+
+      constraint = @llm.constraint_from_schema(schema)
+      config = Candle::GenerationConfig.balanced(
+        constraint: constraint,
+        max_length: 100
+      )
+
+      raw_result = @llm.generate("Generate a person in New York:", config: config)
+
+      # The raw result should be valid JSON, not truncated
+      parsed = JSON.parse(raw_result) rescue nil
+      expect(parsed).to be_a(Hash), "Raw output should be valid JSON, got: #{raw_result.inspect}"
+      expect(parsed).to have_key("name")
+      expect(parsed).to have_key("city")
+    end
+
+    it "creates constraints using from_schema_with_model" do
+      skip unless @model_loaded == true
+
+      # Test that StructuredConstraint.from_schema_with_model works correctly
+      # This uses Vocabulary::from_pretrained for proper byte encoding
+      schema = JSON.generate({
+        type: 'object',
+        properties: {
+          value: { type: 'integer' }
+        },
+        required: ['value']
+      })
+
+      constraint = Candle::StructuredConstraint.from_schema_with_model(
+        schema,
+        "Qwen/Qwen2.5-0.5B"
+      )
+
+      expect(constraint).to be_a(Candle::StructuredConstraint)
+
+      # Use the constraint in generation
+      config = Candle::GenerationConfig.balanced(
+        constraint: constraint,
+        max_length: 30
+      )
+
+      result = @llm.generate("Generate a number:", config: config)
+      parsed = JSON.parse(result) rescue nil
+      expect(parsed).to be_a(Hash), "Should produce valid JSON: #{result.inspect}"
     end
   end
 end

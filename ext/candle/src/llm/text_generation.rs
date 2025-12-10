@@ -148,39 +148,20 @@ impl TextGeneration {
         if let (Some(ref constraint_index), Some(current_state)) = (&self.constraint, self.constraint_state) {
             // Get the next state
             let next_state = constraint_index.next_state(&current_state, &next_token);
-            
+
             // Check if we're transitioning to a state with no allowed tokens (completion)
             if !self.constraint_completed && self.tokens.len() > self.tokens_since_constraint_start {
-                // Check if we've transitioned from a constrained state to an unconstrained state
-                // This happens when the pattern is complete and the FSM allows "anything"
-                
-                let current_constrained = if let Some(allowed) = constraint_index.allowed_tokens(&current_state) {
-                    // Consider it constrained if we have a limited set of allowed tokens
-                    allowed.len() < 1000  // Arbitrary threshold for "constrained"
-                } else {
-                    true  // No tokens allowed is definitely constrained
-                };
-                
-                let next_constrained = if let Some(next_state_val) = next_state {
-                    if let Some(allowed) = constraint_index.allowed_tokens(&next_state_val) {
-                        allowed.is_empty() || allowed.len() < 1000
-                    } else {
-                        true
-                    }
-                } else {
-                    true
-                };
-                
-                // If we're transitioning from constrained to unconstrained, we've completed the pattern
-                if current_constrained && !next_constrained {
-                    self.constraint_completed = true;
-                }
-                
-                // Also check if next state has no allowed tokens at all
+                // Check if next state has no allowed tokens at all - this is definitive completion
                 if let Some(next_state_val) = next_state {
                     if let Some(allowed) = constraint_index.allowed_tokens(&next_state_val) {
                         if allowed.is_empty() {
                             self.constraint_completed = true;
+                        }
+                        // Only mark as complete if ONLY EOS is allowed (not just if EOS is one of many options)
+                        else if let Some(eos) = self.eos_token_id {
+                            if allowed.len() == 1 && allowed.contains(&eos) {
+                                self.constraint_completed = true;
+                            }
                         }
                     } else {
                         // None means no tokens allowed - constraint is complete
@@ -188,7 +169,7 @@ impl TextGeneration {
                     }
                 }
             }
-            
+
             self.constraint_state = next_state;
         }
         
@@ -201,22 +182,22 @@ impl TextGeneration {
         if self.constraint_completed {
             return true;
         }
-        
+
         // Also check the current state
         if let (Some(ref constraint_index), Some(state)) = (&self.constraint, self.constraint_state) {
-            // Check if the constraint has reached a state where it could validly end
-            // This happens when:
-            // 1. We have no more allowed tokens (constraint fully satisfied)
-            // 2. The EOS token is in the allowed tokens (optional ending)
+            // Check if the constraint has reached a state where it MUST end
+            // This happens when there are no more allowed tokens (constraint fully satisfied)
             if let Some(allowed) = constraint_index.allowed_tokens(&state) {
                 // If no tokens are allowed, the constraint is fully satisfied
                 if allowed.is_empty() {
                     return true;
                 }
-                
-                // If EOS token is allowed, we've reached an optional completion point
+
+                // For JSON schemas, check if ONLY the EOS token is allowed
+                // This means we've generated a complete, valid JSON structure
+                // Don't treat EOS as a satisfaction signal if other tokens are also allowed
                 if let Some(eos) = self.eos_token_id {
-                    if allowed.contains(&eos) {
+                    if allowed.len() == 1 && allowed.contains(&eos) {
                         return true;
                     }
                 }
@@ -229,28 +210,37 @@ impl TextGeneration {
     }
     
     /// Check if the constraint is satisfied when stop_on_match is true
+    /// NOTE: For JSON schemas, this should only return true when the JSON structure is complete,
+    /// not just because we're in a state with many allowed tokens (like inside a string).
     pub fn is_constraint_satisfied_stop_on_match(&self) -> bool {
         // When stop_on_match is true, we stop as soon as the constraint is completed
         if self.constraint_completed {
             return true;
         }
-        
-        // Also check if we're currently in a state that could be a valid end
-        // This is important for patterns like phone numbers where after matching
-        // the pattern, the FSM might allow any token (including more numbers)
+
+        // For JSON and other structured outputs, don't use the "large allowed set" heuristic.
+        // Instead, only consider the constraint satisfied when:
+        // 1. There are no allowed tokens (definitive completion)
+        // 2. Only EOS is allowed (completion with optional termination)
         if let (Some(ref constraint_index), Some(state)) = (&self.constraint, self.constraint_state) {
-            // Check if we've generated at least one token since constraint start
-            if self.tokens.len() > self.tokens_since_constraint_start {
-                if let Some(allowed) = constraint_index.allowed_tokens(&state) {
-                    // If the allowed tokens set is very large (unconstrained), 
-                    // it means the pattern has been satisfied
-                    if allowed.len() > 1000 {
+            if let Some(allowed) = constraint_index.allowed_tokens(&state) {
+                // No more tokens allowed - definitely complete
+                if allowed.is_empty() {
+                    return true;
+                }
+
+                // Only EOS is allowed - complete JSON structure
+                if let Some(eos) = self.eos_token_id {
+                    if allowed.len() == 1 && allowed.contains(&eos) {
                         return true;
                     }
                 }
+            } else {
+                // None means no tokens allowed - constraint is complete
+                return true;
             }
         }
-        
+
         false
     }
 
@@ -259,13 +249,13 @@ impl TextGeneration {
         if self.tokens.len() >= max_length {
             return true;
         }
-        
+
         if let Some(eos) = self.eos_token_id {
             if token == eos {
                 return true;
             }
         }
-        
+
         // Check if we've reached a final state in constraint
         // A state is considered final if it has no allowed tokens
         if let (Some(ref constraint_index), Some(state)) = (&self.constraint, self.constraint_state) {
@@ -278,7 +268,7 @@ impl TextGeneration {
                 return true;
             }
         }
-        
+
         false
     }
 
