@@ -1,5 +1,5 @@
 require_relative "candle/logger"
-require_relative "candle/candle"
+require "candle/candle"
 require_relative "candle/tensor"
 require_relative "candle/device_utils"
 require_relative "candle/embedding_model_type"
