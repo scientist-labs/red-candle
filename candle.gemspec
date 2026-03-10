@@ -47,4 +47,5 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "informers"
   spec.add_development_dependency "simplecov"
   spec.add_development_dependency "rspec", "~> 3.13"
+  spec.add_development_dependency "irb"
 end
