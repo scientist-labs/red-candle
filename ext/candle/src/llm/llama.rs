@@ -39,9 +39,10 @@ impl Llama {
     
     /// Load a Llama model from HuggingFace Hub with optional custom tokenizer
     pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
+        crate::ruby::utils::ensure_hf_cache_dir();
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
-        
+
         let repo = api.repo(Repo::model(model_id.to_string()));
         
         // Download model files

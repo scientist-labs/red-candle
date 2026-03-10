@@ -4,6 +4,32 @@ use ::candle_core::Tensor as CoreTensor;
 
 use crate::ruby::Result;
 
+/// Ensures the HuggingFace cache directory exists before Api::new() is called.
+///
+/// The hf_hub crate stores downloaded models in a "hub" subdirectory under the
+/// cache root. When the parent directory doesn't exist, hf_hub may fail to
+/// create the full path or silently produce an empty cache. This function
+/// pre-creates the directory tree to avoid the race condition described in
+/// issue #72.
+///
+/// Resolution order for the cache root:
+///   1. $HF_HOME (if set)
+///   2. $XDG_CACHE_HOME/huggingface (if XDG_CACHE_HOME is set)
+///   3. ~/.cache/huggingface
+pub fn ensure_hf_cache_dir() {
+    let cache_root = if let Ok(hf_home) = std::env::var("HF_HOME") {
+        std::path::PathBuf::from(hf_home)
+    } else if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        std::path::PathBuf::from(xdg).join("huggingface")
+    } else if let Ok(home) = std::env::var("HOME") {
+        std::path::PathBuf::from(home).join(".cache").join("huggingface")
+    } else {
+        return;
+    };
+    let hub_dir = cache_root.join("hub");
+    let _ = std::fs::create_dir_all(hub_dir);
+}
+
 pub fn actual_index(t: &CoreTensor, dim: usize, index: i64) -> candle_core::Result<usize> {
     let dim = t.dim(dim)?;
     if 0 <= index {
