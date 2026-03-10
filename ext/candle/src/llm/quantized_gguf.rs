@@ -51,7 +51,6 @@ impl QuantizedGGUF {
             (model_id, None)
         };
 
-        crate::ruby::utils::ensure_hf_cache_dir();
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
 

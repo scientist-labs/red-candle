@@ -29,7 +29,6 @@ impl Reranker {
         let runtime_error = ruby.exception_runtime_error();
 
         let result = (|| -> std::result::Result<(BertModel, TokenizerWrapper, Linear, Linear), Box<dyn std::error::Error + Send + Sync>> {
-            crate::ruby::utils::ensure_hf_cache_dir();
             let api = Api::new()?;
             let repo = api.repo(Repo::new(model_id.clone(), RepoType::Model));
 

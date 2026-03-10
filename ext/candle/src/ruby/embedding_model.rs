@@ -177,7 +177,6 @@ impl EmbeddingModel {
 
     fn build_embedding_model(model_id: &str, device: CoreDevice, model_type: EmbeddingModelType, embedding_size: Option<usize>) -> Result<EmbeddingModelVariant> {
         use hf_hub::{api::sync::Api, Repo, RepoType};
-        crate::ruby::utils::ensure_hf_cache_dir();
         let api = Api::new().map_err(wrap_hf_err)?;
         let repo = Repo::new(model_id.to_string(), RepoType::Model);
         match model_type {
@@ -269,7 +268,6 @@ impl EmbeddingModel {
 
     fn build_tokenizer(tokenizer_id: String) -> Result<TokenizerWrapper> {
         use hf_hub::{api::sync::Api, Repo, RepoType};
-        crate::ruby::utils::ensure_hf_cache_dir();
         let tokenizer_path = Api::new()
                 .map_err(wrap_hf_err)?
                 .repo(Repo::new(
