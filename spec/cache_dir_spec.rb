@@ -41,7 +41,7 @@ RSpec.describe "HuggingFace cache directory creation" do
     # not on cache directory creation.
     expect {
       begin
-        Candle::EmbeddingModel.new(model_path: "nonexistent/model-for-cache-test")
+        Candle::EmbeddingModel.from_pretrained("nonexistent/model-for-cache-test")
       rescue RuntimeError
         # Expected to fail on model download, not on dir creation
       end
