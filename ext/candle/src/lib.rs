@@ -1,6 +1,7 @@
 use magnus::{function, prelude::*, Ruby};
 
 use crate::ruby::candle_utils;
+use crate::ruby::utils::ensure_hf_cache_dir;
 use crate::ruby::Result;
 
 pub mod llm;
@@ -22,19 +23,20 @@ const DEFAULT_DEVICE: &str = "cpu";
 pub fn get_build_info() -> magnus::RHash {
     let ruby = magnus::Ruby::get().unwrap();
     let hash = ruby.hash_new();
-    
+
     let _ = hash.aset("default_device", DEFAULT_DEVICE);
     let _ = hash.aset("cuda_available", cfg!(feature = "cuda"));
     let _ = hash.aset("metal_available", cfg!(feature = "metal"));
     let _ = hash.aset("mkl_available", cfg!(feature = "mkl"));
     let _ = hash.aset("accelerate_available", cfg!(feature = "accelerate"));
     let _ = hash.aset("cudnn_available", cfg!(feature = "cudnn"));
-    
+
     hash
 }
 
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<()> {
+    ensure_hf_cache_dir();
     let rb_candle = ruby.define_module("Candle")?;
     
     // Export build info

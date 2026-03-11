@@ -42,7 +42,7 @@ impl Phi {
     pub async fn from_pretrained_with_tokenizer(model_id: &str, device: Device, tokenizer_source: Option<&str>) -> CandleResult<Self> {
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
-        
+
         let repo = api.model(model_id.to_string());
         
         // Download configuration

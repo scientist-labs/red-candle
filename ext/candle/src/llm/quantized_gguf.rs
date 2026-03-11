@@ -53,7 +53,7 @@ impl QuantizedGGUF {
 
         let api = Api::new()
             .map_err(|e| candle_core::Error::Msg(format!("Failed to create HF API: {}", e)))?;
-        
+
         let repo = api.model(actual_model_id.to_string());
         
         // Download GGUF file
