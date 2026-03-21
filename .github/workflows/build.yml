@@ -11,6 +11,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      - name: Detect Ruby patch version for cache path
+        id: ruby-version
+        run: echo "patch=$(ruby -e 'puts RUBY_VERSION')" >> "$GITHUB_OUTPUT"
+
       - name: Restore Cargo cache
         id: cargo-cache
         uses: actions/cache/restore@v4
@@ -18,15 +28,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            tmp/x86_64-linux/candle/4.0.1/target
-          key: ${{ runner.os }}-cargo-${{ matrix.ruby-version }}-${{ hashFiles('**/Cargo.lock') }}
+            tmp/x86_64-linux/candle/${{ steps.ruby-version.outputs.patch }}/target
+          key: ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.ruby-version }}-
-
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby-version }}
-          bundler-cache: true
+            ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-
 
       # # Configure AWS credentials for S3 access
       # - name: Configure AWS credentials
@@ -74,8 +79,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            tmp/x86_64-linux/candle/4.0.1/target
-          key: ${{ runner.os }}-cargo-${{ matrix.ruby-version }}-${{ hashFiles('**/Cargo.lock') }}
+            tmp/x86_64-linux/candle/${{ steps.ruby-version.outputs.patch }}/target
+          key: ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run specs
         run: bundle exec rspec
