@@ -128,6 +128,9 @@ impl Qwen {
                 "assistant" => {
                     prompt.push_str(&format!("<|im_start|>assistant\n{}<|im_end|>\n", content));
                 }
+                "tool" => {
+                    prompt.push_str(&format!("<|im_start|>tool\n{}<|im_end|>\n", content));
+                }
                 _ => {}
             }
         }

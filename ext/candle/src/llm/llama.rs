@@ -319,9 +319,9 @@ impl Llama {
                     if i == 1 || (i == 0 && system_message.is_empty()) {
                         // First user message
                         if !system_message.is_empty() {
-                            prompt.push_str(&format!("<s>[INST] <<SYS>>\n{}\n<</SYS>>\n\n{} [/INST]", system_message, content));
+                            prompt.push_str(&format!("[INST] <<SYS>>\n{}\n<</SYS>>\n\n{} [/INST]", system_message, content));
                         } else {
-                            prompt.push_str(&format!("<s>[INST] {} [/INST]", content));
+                            prompt.push_str(&format!("[INST] {} [/INST]", content));
                         }
                     } else {
                         prompt.push_str(&format!(" [INST] {} [/INST]", content));
@@ -340,7 +340,7 @@ impl Llama {
     fn apply_llama3_template(&self, messages: &[serde_json::Value]) -> CandleResult<String> {
         let mut prompt = String::new();
         
-        prompt.push_str("<|begin_of_text|>");
+        // BOS token is added by the tokenizer's encode(prompt, add_special_tokens=true)
         
         for message in messages {
             let role = message["role"].as_str().unwrap_or("");
