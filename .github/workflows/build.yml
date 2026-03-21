@@ -55,6 +55,15 @@ jobs:
       # - name: Display Disk Space Before Test
       #   run: df -h
 
+      - name: Restore HuggingFace model cache
+        id: hf-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: ${{ runner.os }}-hf-models-${{ hashFiles('spec/**/*.rb') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-models-
+
       - name: Compile native extension
         run: bundle exec rake compile
 
@@ -70,6 +79,13 @@ jobs:
 
       - name: Run specs
         run: bundle exec rspec
+
+      - name: Save HuggingFace model cache
+        if: always() && steps.hf-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: ${{ runner.os }}-hf-models-${{ hashFiles('spec/**/*.rb') }}
 
       # - name: Run specs
       #   run: |
