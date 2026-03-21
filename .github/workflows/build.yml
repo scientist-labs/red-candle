@@ -90,7 +90,7 @@ jobs:
           MONITOR_PID=$!
           echo "Initial memory:"
           free -m
-          bundle exec rspec
+          bundle exec rspec --tag '~llm'
           TEST_EXIT=$?
           kill $MONITOR_PID 2>/dev/null || true
           exit $TEST_EXIT

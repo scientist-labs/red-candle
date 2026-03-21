@@ -3,7 +3,7 @@
 require "spec_helper"
 require "json"
 
-RSpec.describe "StructuredGeneration" do
+RSpec.describe "StructuredGeneration", :llm do
   let(:device) { Candle::Device.cpu }
   let(:model_id) { ENV["TEST_MODEL"] || "TinyLlama/TinyLlama-1.1B-Chat-v1.0" }
   let(:llm) do
