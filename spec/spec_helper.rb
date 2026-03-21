@@ -83,11 +83,27 @@ RSpec.configure do |config|
     sleep(0.1)
   end
   
-  # Periodic cleanup during long test runs
+  # Aggressive cleanup after each top-level describe block to free native memory.
+  # Native (Rust/Candle) models loaded via from_pretrained hold large mmap'd
+  # tensors. Ruby's GC won't collect them while instance variables still hold
+  # references, so we explicitly nil any model-holding ivars before GC.
   config.after(:all) do |example_group|
-    # Run GC after each top-level describe block
     if example_group.class.top_level?
-      GC.start
+      # Nil all instance variables that might hold native model objects
+      instance_variables.each do |ivar|
+        val = instance_variable_get(ivar)
+        if val.is_a?(Candle::LLM) || val.is_a?(Candle::EmbeddingModel) ||
+           val.is_a?(Candle::Reranker) || val.is_a?(Candle::NER) ||
+           val.is_a?(Candle::Tokenizer)
+          instance_variable_set(ivar, nil)
+        end
+      end
+
+      # Clear any ModelCache entries
+      ModelCache.clear! if defined?(ModelCache)
+
+      # Aggressive GC to reclaim native memory
+      GC.start(full_mark: true, immediate_sweep: true)
     end
   end
 end

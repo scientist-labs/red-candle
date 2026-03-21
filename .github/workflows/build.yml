@@ -9,20 +9,30 @@ jobs:
         ruby-version: ['4.0']
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            tmp
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby-version }}
           bundler-cache: true
+
+      - name: Detect Ruby patch version for cache path
+        id: ruby-version
+        run: echo "patch=$(ruby -e 'puts RUBY_VERSION')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tmp/x86_64-linux/candle/${{ steps.ruby-version.outputs.patch }}/target
+          key: ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-
 
       # # Configure AWS credentials for S3 access
       # - name: Configure AWS credentials
@@ -51,11 +61,46 @@ jobs:
       # - name: Display Disk Space Before Test
       #   run: df -h
 
+      - name: Restore HuggingFace model cache
+        id: hf-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: ${{ runner.os }}-hf-models-${{ hashFiles('spec/**/*.rb') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-models-
+
       - name: Compile native extension
         run: bundle exec rake compile
 
-      - name: Run specs
-        run: bundle exec rspec
+      - name: Save Cargo cache
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tmp/x86_64-linux/candle/${{ steps.ruby-version.outputs.patch }}/target
+          key: ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run specs with memory monitoring
+        run: |
+          # Log memory every 30s in background
+          (while true; do echo "=== $(date '+%H:%M:%S') ===" ; free -m ; echo "--- Top memory consumers ---" ; ps aux --sort=-%mem | head -5 ; echo ; sleep 30; done) &
+          MONITOR_PID=$!
+          echo "Initial memory:"
+          free -m
+          bundle exec rspec --tag '~llm'
+          TEST_EXIT=$?
+          kill $MONITOR_PID 2>/dev/null || true
+          exit $TEST_EXIT
+
+      - name: Save HuggingFace model cache
+        if: always() && steps.hf-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: ${{ runner.os }}-hf-models-${{ hashFiles('spec/**/*.rb') }}
 
       # - name: Run specs
       #   run: |
