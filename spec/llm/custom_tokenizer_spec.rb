@@ -313,9 +313,8 @@ RSpec.describe "Custom Tokenizer Support" do
     # These tests download small tokenizers but not models
     
     it "can load Mistral tokenizer standalone" do
-      # Mistral-7B-v0.1 uses tokenizer.model, not tokenizer.json
-      # Use the Instruct version which has tokenizer.json
-      tokenizer = Candle::Tokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+      # Use the v0.3 Instruct version which has a valid tokenizer.json
+      tokenizer = Candle::Tokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.3")
       expect(tokenizer).not_to be_nil
       
       tokens = tokenizer.encode("Hello, world!")
