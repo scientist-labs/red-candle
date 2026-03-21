@@ -11,16 +11,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/
-            tmp
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            tmp/x86_64-linux/candle/4.0.1/target
+          key: ${{ runner.os }}-cargo-${{ matrix.ruby-version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-${{ matrix.ruby-version }}-
 
       - uses: ruby/setup-ruby@v1
         with:
