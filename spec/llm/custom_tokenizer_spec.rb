@@ -60,7 +60,7 @@ RSpec.describe "Custom Tokenizer Support" do
         expect {
           Candle::LLM.from_pretrained(
             "mistralai/fake-mistral-model",
-            tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
+            tokenizer: "mistralai/Mistral-7B-Instruct-v0.3"
           )
         }.to raise_error(/Failed to (download|load|create)/)
       end
@@ -89,7 +89,7 @@ RSpec.describe "Custom Tokenizer Support" do
         expect {
           Candle::LLM.from_pretrained(
             "mistralai/fake-mistral-sp-model",
-            tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
+            tokenizer: "mistralai/Mistral-7B-Instruct-v0.3"
           )
         }.to raise_error(/Failed to (download|load|create)/)
       end
@@ -229,7 +229,7 @@ RSpec.describe "Custom Tokenizer Support" do
       expect {
         Candle::LLM.from_pretrained(
           "mistralai/fake-mistral-model",
-          tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
+          tokenizer: "mistralai/Mistral-7B-Instruct-v0.3"
         )
       }.to raise_error(/Failed to (download|load|create)/)
     end
@@ -313,7 +313,8 @@ RSpec.describe "Custom Tokenizer Support" do
     # These tests download small tokenizers but not models
     
     it "can load Mistral tokenizer standalone" do
-      # Use the v0.3 Instruct version which has a valid tokenizer.json
+      # Mistral-7B-v0.1 uses tokenizer.model, not tokenizer.json
+      # Use the Instruct version which has tokenizer.json
       tokenizer = Candle::Tokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.3")
       expect(tokenizer).not_to be_nil
       

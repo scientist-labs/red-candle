@@ -20,7 +20,7 @@ RSpec.describe "Custom Tokenizer Support (Practical)" do
       expect {
         Candle::LLM.from_pretrained(
           "fake-org/fake-mistral-model",
-          tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
+          tokenizer: "mistralai/Mistral-7B-Instruct-v0.3"
         )
       }.to raise_error(/Failed to (download|load|create)/)
     end
@@ -68,7 +68,7 @@ RSpec.describe "Custom Tokenizer Support (Practical)" do
   
   describe "standalone tokenizer functionality" do
     it "loads Mistral tokenizer independently" do
-      tokenizer = Candle::Tokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+      tokenizer = Candle::Tokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.3")
       expect(tokenizer).not_to be_nil
       
       tokens = tokenizer.encode("Hello, world!")
@@ -111,7 +111,7 @@ RSpec.describe "Custom Tokenizer Support (Practical)" do
       expect {
         Candle::LLM.from_pretrained(
           "mistralai/fake-model",
-          tokenizer: "mistralai/Mistral-7B-Instruct-v0.2"
+          tokenizer: "mistralai/Mistral-7B-Instruct-v0.3"
         )
       }.to raise_error(/Failed to/)
     end
