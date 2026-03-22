@@ -37,16 +37,16 @@ module ModelCache
     end
   end
   
-  # Standard LLM - Phi-2 model
+  # Standard LLM - TinyLlama safetensors (small enough for CI at ~2.1 GB)
   def llm
     @cache[:llm] ||= begin
-      puts "Loading LLM (phi-2)..." if ENV['CANDLE_TEST_VERBOSE']
+      puts "Loading LLM (TinyLlama)..." if ENV['CANDLE_TEST_VERBOSE']
       Candle::LLM.from_pretrained(
-        "microsoft/phi-2",
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         device: Candle::Device.cpu
       )
     rescue => e
-      puts "Failed to load LLM: #{e.message}" if ENV['CANDLE_TEST_VERBOSE']
+      $stderr.puts "ModelCache: Failed to load TinyLlama: #{e.message}"
       nil
     end
   end
