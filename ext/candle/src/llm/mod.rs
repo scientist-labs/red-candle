@@ -4,6 +4,7 @@ pub mod mistral;
 pub mod llama;
 pub mod gemma;
 pub mod qwen;
+pub mod qwen3;
 pub mod phi;
 pub mod generation_config;
 pub mod text_generation;
