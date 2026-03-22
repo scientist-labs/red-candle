@@ -296,7 +296,7 @@ impl LLM {
                 }
                 .map_err(|e| Error::new(runtime_error, format!("Failed to load model: {}", e)))?;
                 ModelType::Mistral(mistral)
-            } else if model_lower_clean.contains("llama") || model_lower_clean.contains("meta-llama") || model_lower_clean.contains("tinyllama") {
+            } else if model_lower_clean.contains("llama") || model_lower_clean.contains("meta-llama") || model_lower_clean.contains("tinyllama") || model_lower_clean.contains("smollm") {
                 let llama = if tokenizer_source.is_some() {
                     rt.block_on(async {
                         RustLlama::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
