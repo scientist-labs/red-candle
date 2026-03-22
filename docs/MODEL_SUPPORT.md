@@ -24,6 +24,7 @@
 | GLM-4 | `THUDM/GLM-4-9B-0414` | | | `llm = Candle::LLM.from_pretrained("THUDM/GLM-4-9B-0414")` |
 | GLM-4 (GGUF) | `bartowski/THUDM_GLM-4-9B-0414-GGUF` | `THUDM_GLM-4-9B-0414-Q4_K_M.gguf` | `THUDM/GLM-4-9B-0414` | `llm = Candle::LLM.from_pretrained("bartowski/THUDM_GLM-4-9B-0414-GGUF", gguf_file: "THUDM_GLM-4-9B-0414-Q4_K_M.gguf", tokenizer: "THUDM/GLM-4-9B-0414")` |
 | Granite 7B | `ibm-granite/granite-7b-instruct` | | | `llm = Candle::LLM.from_pretrained("ibm-granite/granite-7b-instruct")` |
+| Granite 4.0 Micro | `ibm-granite/granite-4.0-micro` | | | `llm = Candle::LLM.from_pretrained("ibm-granite/granite-4.0-micro")` |
 | Phi-3 (GGUF) | `microsoft/Phi-3-mini-4k-instruct-gguf` | `Phi-3-mini-4k-instruct-q4.gguf` | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-4k-instruct-gguf", gguf_file: "Phi-3-mini-4k-instruct-q4.gguf")` |
 | Phi-4 (GGUF) | `microsoft/phi-4-gguf` | `phi-4-Q4_K_S.gguf` | | `llm = Candle::LLM.from_pretrained("microsoft/phi-4-gguf", gguf_file: "phi-4-Q4_K_S.gguf")` |
 
