@@ -34,8 +34,9 @@ module Candle
           messages << { role: "assistant", content: result.raw_response }
 
           result.tool_results.each do |tr|
+            tool_name = tr[:tool_call]&.name || "unknown"
             tool_output = tr[:error] ? "Error: #{tr[:error]}" : JSON.generate(tr[:result])
-            messages << { role: "tool", content: tool_output }
+            messages << { role: "tool", content: "[#{tool_name}] #{tool_output}" }
           end
         else
           return AgentResult.new(
