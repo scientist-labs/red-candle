@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          GEM_VERSION=$(ruby -r ./lib/candle/version -e "puts Candle::VERSION")
+          if [ "$TAG_VERSION" != "$GEM_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match gem version ($GEM_VERSION)"
+            exit 1
+          fi
+          echo "Version: $GEM_VERSION"
+
+      - name: Build gem
+        run: gem build candle.gemspec
+
+      - name: Push to RubyGems
+        run: |
+          mkdir -p ~/.gem
+          echo "---" > ~/.gem/credentials
+          echo ":rubygems_api_key: ${{ secrets.RUBYGEMS_API_KEY }}" >> ~/.gem/credentials
+          chmod 0600 ~/.gem/credentials
+          gem push red-candle-*.gem
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          gh release create "$VERSION" \
+            --title "v$VERSION" \
+            --generate-notes \
+            red-candle-*.gem

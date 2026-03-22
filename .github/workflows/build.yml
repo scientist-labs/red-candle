@@ -5,8 +5,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        #ruby-version: ['3.2', '3.3', '3.4', '4.0']
-        ruby-version: ['4.0']
+        ruby-version: ['3.4', '4.0']
       fail-fast: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -83,17 +82,53 @@ jobs:
             tmp/x86_64-linux/candle/${{ steps.ruby-version.outputs.patch }}/target
           key: ${{ runner.os }}-cargo-${{ steps.ruby-version.outputs.patch }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run specs with memory monitoring
+      - name: Run unit specs
         run: |
-          # Log memory every 30s in background
-          (while true; do echo "=== $(date '+%H:%M:%S') ===" ; free -m ; echo "--- Top memory consumers ---" ; ps aux --sort=-%mem | head -5 ; echo ; sleep 30; done) &
-          MONITOR_PID=$!
-          echo "Initial memory:"
-          free -m
-          bundle exec rspec --tag '~llm'
-          TEST_EXIT=$?
-          kill $MONITOR_PID 2>/dev/null || true
-          exit $TEST_EXIT
+          bundle exec rspec \
+            spec/build_info_spec.rb \
+            spec/candle_spec.rb \
+            spec/embedding_model_type_spec.rb \
+            spec/gazetteer_entity_recognizer_spec.rb \
+            spec/generation_config_spec.rb \
+            spec/hybrid_ner_spec.rb \
+            spec/pattern_entity_recognizer_spec.rb \
+            spec/require_spec.rb \
+            spec/schema_processor_spec.rb \
+            spec/tensor_methods_spec.rb
+
+      - name: Run model specs (isolated per file to prevent memory accumulation)
+        run: |
+          FAILED=0
+          MODEL_SPECS=(
+            spec/embedding_model_spec.rb
+            spec/embedding_model_pooling_spec.rb
+            spec/embedding_model_types_spec.rb
+            spec/candle_embedding_verification_spec.rb
+            spec/reranker_spec.rb
+            spec/reranker_truncation_spec.rb
+            spec/reranker_max_length_spec.rb
+            spec/ner_spec.rb
+            spec/ner_core_functionality_spec.rb
+            spec/ner_comprehensive_spec.rb
+            spec/ner_integration_spec.rb
+            spec/tokenizer_spec.rb
+            spec/tokenizer_tokens_spec.rb
+            spec/tokenizer_coverage_spec.rb
+            spec/vocabulary_adapter_integration_spec.rb
+            spec/llm_metadata_spec.rb
+            spec/model_edge_cases_spec.rb
+            spec/candle_informers_comparison_spec.rb
+            spec/cache_dir_spec.rb
+            spec/device_compatibility_spec.rb
+          )
+          for spec in "${MODEL_SPECS[@]}"; do
+            echo "=== Running $spec ==="
+            if ! bundle exec rspec "$spec" --tag '~llm'; then
+              echo "FAILED: $spec"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
 
       - name: Save HuggingFace model cache
         if: always() && steps.hf-cache.outputs.cache-hit != 'true'
