@@ -284,7 +284,7 @@ module Candle
           begin
             output = tool.call(tool_call.arguments)
             { tool_call: tool_call, result: output, error: nil }
-          rescue => e
+          rescue Exception => e
             { tool_call: tool_call, result: nil, error: e.message }
           end
         end

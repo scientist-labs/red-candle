@@ -31,6 +31,17 @@ module Candle
         result = @llm.chat_with_tools(messages, tools: @tools, **options)
 
         if result.has_tool_calls?
+          # If the model produced a substantial text answer alongside tool calls,
+          # treat it as a final response (model is done, trailing tool calls are noise)
+          if result.text_response && result.text_response.length > 50
+            return AgentResult.new(
+              response: result.text_response,
+              messages: messages,
+              iterations: iterations,
+              tool_calls_made: messages.count { |m| m[:role] == "tool" }
+            )
+          end
+
           messages << { role: "assistant", content: result.raw_response }
 
           result.tool_results.each do |tr|
