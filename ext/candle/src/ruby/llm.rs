@@ -2,7 +2,7 @@ use magnus::{function, method, prelude::*, Error, Module, RArray, RHash, RModule
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::llm::{GenerationConfig as RustGenerationConfig, TextGenerator, mistral::Mistral as RustMistral, llama::Llama as RustLlama, gemma::Gemma as RustGemma, qwen::Qwen as RustQwen, qwen3::Qwen3 as RustQwen3, phi::Phi as RustPhi, granite::Granite as RustGranite, glm4::Glm4 as RustGlm4, QuantizedGGUF as RustQuantizedGGUF};
+use crate::llm::{GenerationConfig as RustGenerationConfig, TextGenerator, mistral::Mistral as RustMistral, llama::Llama as RustLlama, gemma::Gemma as RustGemma, qwen::Qwen as RustQwen, qwen3::Qwen3 as RustQwen3, phi::Phi as RustPhi, granite::Granite as RustGranite, granitemoehybrid::GraniteMoeHybrid as RustGraniteMoeHybrid, glm4::Glm4 as RustGlm4, QuantizedGGUF as RustQuantizedGGUF};
 use crate::ruby::{Result, Device};
 use crate::ruby::structured::StructuredConstraint;
 
@@ -15,6 +15,7 @@ enum ModelType {
     Qwen3(RustQwen3),
     Phi(RustPhi),
     Granite(RustGranite),
+    GraniteMoeHybrid(RustGraniteMoeHybrid),
     Glm4(RustGlm4),
     QuantizedGGUF(RustQuantizedGGUF),
 }
@@ -29,6 +30,7 @@ impl ModelType {
             ModelType::Qwen3(m) => m.generate(prompt, config),
             ModelType::Phi(m) => m.generate(prompt, config),
             ModelType::Granite(m) => m.generate(prompt, config),
+            ModelType::GraniteMoeHybrid(m) => m.generate(prompt, config),
             ModelType::Glm4(m) => m.generate(prompt, config),
             ModelType::QuantizedGGUF(m) => m.generate(prompt, config),
         }
@@ -48,6 +50,7 @@ impl ModelType {
             ModelType::Qwen3(m) => m.generate_stream(prompt, config, callback),
             ModelType::Phi(m) => m.generate_stream(prompt, config, callback),
             ModelType::Granite(m) => m.generate_stream(prompt, config, callback),
+            ModelType::GraniteMoeHybrid(m) => m.generate_stream(prompt, config, callback),
             ModelType::Glm4(m) => m.generate_stream(prompt, config, callback),
             ModelType::QuantizedGGUF(m) => m.generate_stream(prompt, config, callback),
         }
@@ -62,6 +65,7 @@ impl ModelType {
             ModelType::Qwen3(m) => m.clear_cache(),
             ModelType::Phi(m) => m.clear_cache(),
             ModelType::Granite(m) => m.clear_cache(),
+            ModelType::GraniteMoeHybrid(m) => m.clear_cache(),
             ModelType::Glm4(m) => m.clear_cache(),
             ModelType::QuantizedGGUF(m) => m.clear_cache(),
         }
@@ -92,6 +96,7 @@ impl ModelType {
             ModelType::Qwen3(m) => m.apply_chat_template(messages),
             ModelType::Phi(m) => m.apply_chat_template(messages),
             ModelType::Granite(m) => m.apply_chat_template(messages),
+            ModelType::GraniteMoeHybrid(m) => m.apply_chat_template(messages),
             ModelType::Glm4(m) => m.apply_chat_template(messages),
             ModelType::QuantizedGGUF(m) => m.apply_chat_template(messages),
         }
@@ -366,6 +371,18 @@ impl LLM {
                 }
                 .map_err(|e| Error::new(runtime_error, format!("Failed to load model: {}", e)))?;
                 ModelType::Phi(phi)
+            } else if model_lower_clean.contains("granite-4") || model_lower_clean.contains("granitemoehybrid") {
+                let granite_moe = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustGraniteMoeHybrid::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustGraniteMoeHybrid::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
+                .map_err(|e| Error::new(runtime_error, format!("Failed to load model: {}", e)))?;
+                ModelType::GraniteMoeHybrid(granite_moe)
             } else if model_lower_clean.contains("granite") {
                 let granite = if tokenizer_source.is_some() {
                     rt.block_on(async {
@@ -477,6 +494,7 @@ impl LLM {
             ModelType::Qwen3(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::Phi(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::Granite(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
+            ModelType::GraniteMoeHybrid(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::Glm4(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::QuantizedGGUF(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
         }
@@ -500,6 +518,7 @@ impl LLM {
                 ModelType::Qwen3(m) => m.eos_token_id(),
                 ModelType::Phi(m) => m.eos_token_id(),
                 ModelType::Granite(m) => m.eos_token_id(),
+                ModelType::GraniteMoeHybrid(m) => m.eos_token_id(),
                 ModelType::Glm4(m) => m.eos_token_id(),
                 ModelType::QuantizedGGUF(m) => m.eos_token_id(),
             };
@@ -512,6 +531,7 @@ impl LLM {
                 ModelType::Qwen3(m) => m.tokenizer().clone(),
                 ModelType::Phi(m) => m.tokenizer().clone(),
                 ModelType::Granite(m) => m.tokenizer().clone(),
+                ModelType::GraniteMoeHybrid(m) => m.tokenizer().clone(),
                 ModelType::Glm4(m) => m.tokenizer().clone(),
                 ModelType::QuantizedGGUF(m) => m.tokenizer().clone(),
             };
@@ -629,6 +649,7 @@ impl LLM {
             ModelType::Qwen3(_) => "Qwen3",
             ModelType::Phi(_) => "Phi",
             ModelType::Granite(_) => "Granite",
+            ModelType::GraniteMoeHybrid(_) => "GraniteMoeHybrid",
             ModelType::Glm4(_) => "Glm4",
             ModelType::QuantizedGGUF(_) => "QuantizedGGUF",
         };
