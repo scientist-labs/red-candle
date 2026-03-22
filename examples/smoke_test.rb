@@ -23,7 +23,7 @@ puts "=" * 80
 puts "Build Info"
 puts "-" * 80
 info = Candle::BuildInfo.summary
-puts "  Device: #{info["default_device"]} | Metal: #{info["metal_available"]} | CUDA: #{info["cuda_available"]}"
+puts "  Device: #{info[:default_device]} | Metal: #{info[:metal_available]} | CUDA: #{info[:cuda_available]}"
 
 # ============================================================
 # LLM Models (from MODEL_SUPPORT.md - Known Working)
@@ -93,6 +93,10 @@ llm_models.each do |entry|
   test("model_id", passed, failed) { llm.model_id }
   test("options", passed, failed) { llm.options }
   test("inspect", passed, failed) { llm.inspect }
+
+  # Free model memory before loading the next one
+  llm = nil
+  GC.start(full_mark: true, immediate_sweep: true)
   puts
 end
 
@@ -128,6 +132,10 @@ if struct_llm
   test("generate_regex", passed, failed) do
     struct_llm.generate_regex("The answer is", pattern: '\d+', max_length: 10)
   end
+
+  # Free model memory
+  struct_llm = nil
+  GC.start(full_mark: true, immediate_sweep: true)
 end
 
 # ============================================================
