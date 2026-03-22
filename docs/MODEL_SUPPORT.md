@@ -11,6 +11,8 @@
 | Qwen3 | `Qwen/Qwen3-0.6B` | | | `llm = Candle::LLM.from_pretrained("Qwen/Qwen3-0.6B")` |
 | Qwen3 | `MaziyarPanahi/Qwen3-0.6B-GGUF` | `Qwen3-0.6B.Q4_K_M.gguf` | `Qwen/Qwen3-0.6B` | `llm = Candle::LLM.from_pretrained("MaziyarPanahi/Qwen3-0.6B-GGUF", gguf_file: "Qwen3-0.6B.Q4_K_M.gguf", tokenizer: "Qwen/Qwen3-0.6B")` |
 | Qwen3 | `MaziyarPanahi/Qwen3-1.7B-GGUF` | `Qwen3-1.7B.Q4_K_M.gguf` | `Qwen/Qwen3-1.7B` | `llm = Candle::LLM.from_pretrained("MaziyarPanahi/Qwen3-1.7B-GGUF", gguf_file: "Qwen3-1.7B.Q4_K_M.gguf", tokenizer: "Qwen/Qwen3-1.7B")` |
+| SmolLM2 360M | `HuggingFaceTB/SmolLM2-360M-Instruct` | | | `llm = Candle::LLM.from_pretrained("HuggingFaceTB/SmolLM2-360M-Instruct")` |
+| SmolLM2 360M (GGUF) | `HuggingFaceTB/SmolLM2-360M-Instruct-GGUF` | `smollm2-360m-instruct-q8_0.gguf` | | `llm = Candle::LLM.from_pretrained("HuggingFaceTB/SmolLM2-360M-Instruct-GGUF", gguf_file: "smollm2-360m-instruct-q8_0.gguf")` |
 | Phi-2 | `microsoft/phi-2` | | | `llm = Candle::LLM.from_pretrained("microsoft/phi-2")` |
 | Phi-2 | `TheBloke/phi-2-GGUF` | `phi-2.Q4_K_M.gguf` | | `llm = Candle::LLM.from_pretrained("TheBloke/phi-2-GGUF", gguf_file: "phi-2.Q4_K_M.gguf")` |
 | Phi-3 | `microsoft/Phi-3-mini-4k-instruct` | | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-4k-instruct")` |
