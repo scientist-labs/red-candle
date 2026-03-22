@@ -47,6 +47,8 @@ llm_models = [
   { name: "Phi-2 (GGUF)", model: "TheBloke/phi-2-GGUF",
     options: { gguf_file: "phi-2.Q4_K_M.gguf" } },
   { name: "Phi-3 mini 4k (safetensors)", model: "microsoft/Phi-3-mini-4k-instruct" },
+  { name: "Yi-1.5 6B Chat (GGUF)", model: "bartowski/Yi-1.5-6B-Chat-GGUF",
+    options: { gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat" } },
 ]
 
 messages = [
