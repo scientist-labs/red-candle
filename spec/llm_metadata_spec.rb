@@ -120,7 +120,7 @@ RSpec.describe "LLMMetadata" do
       inspect_str = llm.inspect
       expect(inspect_str).to include("#<Candle::LLM")
       expect(inspect_str).to include("model=")
-      expect(inspect_str).to include("type=Phi")
+      expect(inspect_str).to include("type=Llama")
       expect(inspect_str).to include("device=cpu")
     end
   end
