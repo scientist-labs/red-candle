@@ -19,12 +19,13 @@
 | Phi-3 | `microsoft/Phi-3-mini-128k-instruct` | | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct")` |
 | Yi-1.5 | `01-ai/Yi-1.5-6B-Chat` | | | `llm = Candle::LLM.from_pretrained("01-ai/Yi-1.5-6B-Chat")` |
 | Yi-1.5 (GGUF) | `bartowski/Yi-1.5-6B-Chat-GGUF` | `Yi-1.5-6B-Chat-Q4_K_M.gguf` | `01-ai/Yi-1.5-6B-Chat` | `llm = Candle::LLM.from_pretrained("bartowski/Yi-1.5-6B-Chat-GGUF", gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat")` |
-| GLM-4 (GGUF) | `bartowski/glm-4-9b-chat-1m-GGUF` | `glm-4-9b-chat-1m-Q4_K_M.gguf` | `THUDM/glm-4-9b-chat` | `llm = Candle::LLM.from_pretrained("bartowski/glm-4-9b-chat-1m-GGUF", gguf_file: "glm-4-9b-chat-1m-Q4_K_M.gguf", tokenizer: "THUDM/glm-4-9b-chat")` |
+| GLM-4 (GGUF) | `bartowski/THUDM_GLM-4-9B-0414-GGUF` | `THUDM_GLM-4-9B-0414-Q4_K_M.gguf` | `THUDM/GLM-4-9B-0414` | `llm = Candle::LLM.from_pretrained("bartowski/THUDM_GLM-4-9B-0414-GGUF", gguf_file: "THUDM_GLM-4-9B-0414-Q4_K_M.gguf", tokenizer: "THUDM/GLM-4-9B-0414")` |
 
 ## ⚠️ Partially Working Models
 
 | Model | Model Path | GGUF File | Tokenizer | Initializer | Status |
 | :----- | :---- | :---- | :---- | :---- | :---- |
+| GLM-4 (older) | `bartowski/glm-4-9b-chat-1m-GGUF` | `glm-4-9b-chat-1m-Q4_K_M.gguf` | `THUDM/glm-4-9b-chat` | `llm = Candle::LLM.from_pretrained("bartowski/glm-4-9b-chat-1m-GGUF", gguf_file: "glm-4-9b-chat-1m-Q4_K_M.gguf", tokenizer: "THUDM/glm-4-9b-chat")` | Older GLM-4 only ships `tokenizer.model` (tiktoken), not `tokenizer.json`. Use GLM-4-9B-0414 instead. |
 | Granite 3.3 2B | `ibm-granite/granite-3.3-2b-instruct` | | | `llm = Candle::LLM.from_pretrained("ibm-granite/granite-3.3-2b-instruct")` | Loads and generates but output quality is degraded. Upstream candle-transformers 0.9.2 granite.rs does not implement Granite 3.x-specific scaling multipliers (embedding_multiplier, attention_multiplier, residual_multiplier, logits_scaling). Safetensors only, no GGUF support. |
 | Qwen-2.5 (safetensors) | `Qwen/Qwen2.5-0.5B-Instruct` | | | `llm = Candle::LLM.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")` | Safetensors loading produces garbage output, upstream candle bug [#2295](https://github.com/huggingface/candle/issues/2295). GGUF version works fine. |
 | Phi-3 | `microsoft/Phi-3-mini-4k-instruct-gguf` | `Phi-3-mini-4k-instruct-q4.gguf` | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-4k-instruct-gguf", gguf_file: "Phi-3-mini-4k-instruct-q4.gguf")` | works once, fails on subsequent calls, [candle PR](https://github.com/huggingface/candle/pull/2937) |

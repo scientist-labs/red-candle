@@ -50,8 +50,8 @@ llm_models = [
   { name: "Yi-1.5 6B Chat (GGUF)", model: "bartowski/Yi-1.5-6B-Chat-GGUF",
     options: { gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat" } },
   { name: "Granite 3.3 2B (safetensors)", model: "ibm-granite/granite-3.3-2b-instruct" },
-  { name: "GLM-4 9B (GGUF)", model: "bartowski/glm-4-9b-chat-1m-GGUF",
-    options: { gguf_file: "glm-4-9b-chat-1m-Q4_K_M.gguf", tokenizer: "THUDM/glm-4-9b-chat" } },
+  { name: "GLM-4 9B (GGUF)", model: "bartowski/THUDM_GLM-4-9B-0414-GGUF",
+    options: { gguf_file: "THUDM_GLM-4-9B-0414-Q4_K_M.gguf", tokenizer: "THUDM/GLM-4-9B-0414" } },
 ]
 
 messages = [
