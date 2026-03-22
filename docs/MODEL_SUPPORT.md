@@ -24,6 +24,7 @@
 
 | Model | Model Path | GGUF File | Tokenizer | Initializer | Status |
 | :----- | :---- | :---- | :---- | :---- | :---- |
+| Granite 3.3 2B | `ibm-granite/granite-3.3-2b-instruct` | | | `llm = Candle::LLM.from_pretrained("ibm-granite/granite-3.3-2b-instruct")` | Loads and generates but output quality is degraded. Upstream candle-transformers 0.9.2 granite.rs does not implement Granite 3.x-specific scaling multipliers (embedding_multiplier, attention_multiplier, residual_multiplier, logits_scaling). Safetensors only, no GGUF support. |
 | Qwen-2.5 (safetensors) | `Qwen/Qwen2.5-0.5B-Instruct` | | | `llm = Candle::LLM.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")` | Safetensors loading produces garbage output, upstream candle bug [#2295](https://github.com/huggingface/candle/issues/2295). GGUF version works fine. |
 | Phi-3 | `microsoft/Phi-3-mini-4k-instruct-gguf` | `Phi-3-mini-4k-instruct-q4.gguf` | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-4k-instruct-gguf", gguf_file: "Phi-3-mini-4k-instruct-q4.gguf")` | works once, fails on subsequent calls, [candle PR](https://github.com/huggingface/candle/pull/2937) |
 | Phi-4 | `microsoft/phi-4-gguf` | `phi-4-Q4_K_S.gguf` | | `llm = Candle::LLM.from_pretrained("microsoft/phi-4-gguf", gguf_file: "phi-4-Q4_K_S.gguf")` | works once, fails on subsequent calls, [candle PR](https://github.com/huggingface/candle/pull/2937) |

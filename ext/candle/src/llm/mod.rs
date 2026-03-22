@@ -6,6 +6,7 @@ pub mod gemma;
 pub mod qwen;
 pub mod qwen3;
 pub mod phi;
+pub mod granite;
 pub mod generation_config;
 pub mod text_generation;
 pub mod quantized_gguf;

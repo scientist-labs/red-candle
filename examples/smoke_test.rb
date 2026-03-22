@@ -49,6 +49,7 @@ llm_models = [
   { name: "Phi-3 mini 4k (safetensors)", model: "microsoft/Phi-3-mini-4k-instruct" },
   { name: "Yi-1.5 6B Chat (GGUF)", model: "bartowski/Yi-1.5-6B-Chat-GGUF",
     options: { gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat" } },
+  { name: "Granite 3.3 2B (safetensors)", model: "ibm-granite/granite-3.3-2b-instruct" },
 ]
 
 messages = [
