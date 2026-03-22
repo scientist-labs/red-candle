@@ -17,6 +17,9 @@ models = [
     ]
   },
   {
+    model: "Qwen/Qwen3-0.6B"
+  },
+  {
     model: "google/gemma-3-4b-it-qat-q4_0-gguf",
     options: [
       { gguf_file: "gemma-3-4b-it-q4_0.gguf", tokenizer: "google/gemma-3-4b-it" }
@@ -32,12 +35,22 @@ messages = [
 config = Candle::GenerationConfig.balanced(debug_tokens: false, max_length: 50)
 models.each do |entry|
   model = entry[:model]
+  puts "-" * 80
+  puts "-" * 80
   options = entry[:options]
-  options.each do |option|
-    puts "-" * 80
-    puts "-" * 80
-    puts "#{model} - #{option}"
-    llm = Candle::LLM.from_pretrained(model, device: device, **option)
+  puts "#{model} - #{options}"
+  if options
+    options.each do |option|
+      llm = Candle::LLM.from_pretrained(model, device: device, **option)
+      puts "-" * 80
+      # llm.generate_stream("What is Ruby?", config: config) { |t| print t }
+      # puts llm.generate("Question: What is Ruby?\nAnswer:", config: config)
+      # puts llm.chat(messages, config: config)
+      puts llm.chat_stream(messages, config: config) { |t| print t }
+      puts "-" * 80
+    end
+  else
+    llm = Candle::LLM.from_pretrained(model, device: device)
     puts "-" * 80
     # llm.generate_stream("What is Ruby?", config: config) { |t| print t }
     # puts llm.generate("Question: What is Ruby?\nAnswer:", config: config)
