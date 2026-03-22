@@ -6,6 +6,7 @@ use candle_transformers::models::quantized_qwen2::ModelWeights as QuantizedQwenM
 use candle_transformers::models::quantized_phi::ModelWeights as QuantizedPhiModel;
 use candle_transformers::models::quantized_phi3::ModelWeights as QuantizedPhi3Model;
 use candle_transformers::models::quantized_qwen3::ModelWeights as QuantizedQwen3Model;
+use candle_transformers::models::quantized_glm4::ModelWeights as QuantizedGlm4Model;
 use hf_hub::api::tokio::{Api, ApiRepo};
 use tokenizers::Tokenizer;
 use std::io::Seek;
@@ -30,6 +31,7 @@ enum ModelType {
     Qwen3(QuantizedQwen3Model),
     Phi(QuantizedPhiModel),
     Phi3(QuantizedPhi3Model),
+    Glm4(QuantizedGlm4Model),
     // Mistral uses Llama loader due to tensor naming compatibility
 }
 
@@ -150,9 +152,19 @@ impl QuantizedGGUF {
                 let model = QuantizedPhi3Model::from_gguf(approx, content, &mut file, &device)?;
                 ModelType::Phi3(model)
             }
+            "glm4" => {
+                if content.metadata.contains_key("glm4.attention.head_count") {
+                    let model = QuantizedGlm4Model::from_gguf(content, &mut file, &device, DType::F32)?;
+                    ModelType::Glm4(model)
+                } else {
+                    return Err(candle_core::Error::Msg(
+                        "GLM-4 GGUF file does not contain expected glm4.* metadata keys".to_string()
+                    ));
+                }
+            }
             _ => {
                 return Err(candle_core::Error::Msg(format!(
-                    "Unsupported architecture: {}. Supported: llama, mistral, gemma, qwen, qwen2, qwen3, phi, phi2, phi3",
+                    "Unsupported architecture: {}. Supported: llama, mistral, gemma, qwen, qwen2, qwen3, phi, phi2, phi3, glm4",
                     architecture
                 )));
             }
@@ -189,6 +201,8 @@ impl QuantizedGGUF {
             Ok("gemma".to_string())
         } else if model_lower.contains("qwen") {
             Ok("qwen".to_string())
+        } else if model_lower.contains("glm") {
+            Ok("glm4".to_string())
         } else if model_lower.contains("phi-3") || model_lower.contains("phi3") {
             Ok("phi3".to_string())
         } else if model_lower.contains("phi-2") || model_lower.contains("phi2") {
@@ -295,6 +309,13 @@ impl QuantizedGGUF {
                     .copied()
                     .unwrap_or(50256) // Default GPT-2 style EOS token
             }
+            "glm4" => {
+                vocab.get("<|endoftext|>")
+                    .or_else(|| vocab.get("<|user|>"))
+                    .or_else(|| vocab.get("</s>"))
+                    .copied()
+                    .unwrap_or(151329)
+            }
             _ => 2, // Default
         }
     }
@@ -320,6 +341,8 @@ impl QuantizedGGUF {
             self.apply_gemma_template(messages)
         } else if model_lower.contains("qwen") {
             self.apply_qwen_template(messages)
+        } else if model_lower.contains("glm") {
+            self.apply_glm4_template(messages)
         } else if model_lower.contains("phi") {
             self.apply_phi_template(messages)
         } else {
@@ -339,6 +362,9 @@ impl QuantizedGGUF {
                 }
                 "phi" | "phi2" | "phi3" => {
                     self.apply_phi_template(messages)
+                }
+                "glm4" => {
+                    self.apply_glm4_template(messages)
                 }
                 _ => Ok(self.apply_generic_template(messages))
             }
@@ -509,6 +535,33 @@ impl QuantizedGGUF {
         Ok(prompt)
     }
     
+    fn apply_glm4_template(&self, messages: &[serde_json::Value]) -> CandleResult<String> {
+        let mut prompt = String::new();
+
+        prompt.push_str("[gMASK]<sop>");
+
+        for message in messages {
+            let role = message["role"].as_str().unwrap_or("");
+            let content = message["content"].as_str().unwrap_or("");
+
+            match role {
+                "system" => {
+                    prompt.push_str(&format!("<|system|>\n{}", content));
+                }
+                "user" => {
+                    prompt.push_str(&format!("<|user|>\n{}", content));
+                }
+                "assistant" => {
+                    prompt.push_str(&format!("<|assistant|>\n{}", content));
+                }
+                _ => {}
+            }
+        }
+
+        prompt.push_str("<|assistant|>\n");
+        Ok(prompt)
+    }
+
     fn apply_chatml_template(&self, messages: &[serde_json::Value]) -> CandleResult<String> {
         let mut prompt = String::new();
         
@@ -575,6 +628,7 @@ impl QuantizedGGUF {
                 ModelType::Qwen3(model) => model.forward(&input, start_pos)?,
                 ModelType::Phi(model) => model.forward(&input, start_pos)?,
                 ModelType::Phi3(model) => model.forward(&input, start_pos)?,
+                ModelType::Glm4(model) => model.forward(&input, start_pos)?,
             };
             
             let logits = logits.squeeze(0)?;

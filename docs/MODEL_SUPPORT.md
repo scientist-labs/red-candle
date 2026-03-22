@@ -19,6 +19,7 @@
 | Phi-3 | `microsoft/Phi-3-mini-128k-instruct` | | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct")` |
 | Yi-1.5 | `01-ai/Yi-1.5-6B-Chat` | | | `llm = Candle::LLM.from_pretrained("01-ai/Yi-1.5-6B-Chat")` |
 | Yi-1.5 (GGUF) | `bartowski/Yi-1.5-6B-Chat-GGUF` | `Yi-1.5-6B-Chat-Q4_K_M.gguf` | `01-ai/Yi-1.5-6B-Chat` | `llm = Candle::LLM.from_pretrained("bartowski/Yi-1.5-6B-Chat-GGUF", gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat")` |
+| GLM-4 (GGUF) | `bartowski/glm-4-9b-chat-1m-GGUF` | `glm-4-9b-chat-1m-Q4_K_M.gguf` | `THUDM/glm-4-9b-chat` | `llm = Candle::LLM.from_pretrained("bartowski/glm-4-9b-chat-1m-GGUF", gguf_file: "glm-4-9b-chat-1m-Q4_K_M.gguf", tokenizer: "THUDM/glm-4-9b-chat")` |
 
 ## ⚠️ Partially Working Models
 
