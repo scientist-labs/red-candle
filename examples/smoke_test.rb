@@ -23,7 +23,7 @@ puts "=" * 80
 puts "Build Info"
 puts "-" * 80
 info = Candle::BuildInfo.summary
-puts "  Device: #{info["default_device"]} | Metal: #{info["metal_available"]} | CUDA: #{info["cuda_available"]}"
+puts "  Device: #{info[:default_device]} | Metal: #{info[:metal_available]} | CUDA: #{info[:cuda_available]}"
 
 # ============================================================
 # LLM Models (from MODEL_SUPPORT.md - Known Working)
@@ -49,6 +49,7 @@ llm_models = [
   { name: "Phi-3 mini 4k (safetensors)", model: "microsoft/Phi-3-mini-4k-instruct" },
   { name: "Yi-1.5 6B Chat (GGUF)", model: "bartowski/Yi-1.5-6B-Chat-GGUF",
     options: { gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat" } },
+  { name: "Granite 3.3 2B (safetensors)", model: "ibm-granite/granite-3.3-2b-instruct" },
 ]
 
 messages = [
@@ -92,6 +93,10 @@ llm_models.each do |entry|
   test("model_id", passed, failed) { llm.model_id }
   test("options", passed, failed) { llm.options }
   test("inspect", passed, failed) { llm.inspect }
+
+  # Free model memory before loading the next one
+  llm = nil
+  GC.start(full_mark: true, immediate_sweep: true)
   puts
 end
 
@@ -127,6 +132,10 @@ if struct_llm
   test("generate_regex", passed, failed) do
     struct_llm.generate_regex("The answer is", pattern: '\d+', max_length: 10)
   end
+
+  # Free model memory
+  struct_llm = nil
+  GC.start(full_mark: true, immediate_sweep: true)
 end
 
 # ============================================================
