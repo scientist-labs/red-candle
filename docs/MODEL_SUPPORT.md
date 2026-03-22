@@ -17,6 +17,8 @@
 | Phi-2 | `TheBloke/phi-2-GGUF` | `phi-2.Q4_K_M.gguf` | | `llm = Candle::LLM.from_pretrained("TheBloke/phi-2-GGUF", gguf_file: "phi-2.Q4_K_M.gguf")` |
 | Phi-3 | `microsoft/Phi-3-mini-4k-instruct` | | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-4k-instruct")` |
 | Phi-3 | `microsoft/Phi-3-mini-128k-instruct` | | | `llm = Candle::LLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct")` |
+| Yi-1.5 | `01-ai/Yi-1.5-6B-Chat` | | | `llm = Candle::LLM.from_pretrained("01-ai/Yi-1.5-6B-Chat")` |
+| Yi-1.5 (GGUF) | `bartowski/Yi-1.5-6B-Chat-GGUF` | `Yi-1.5-6B-Chat-Q4_K_M.gguf` | `01-ai/Yi-1.5-6B-Chat` | `llm = Candle::LLM.from_pretrained("bartowski/Yi-1.5-6B-Chat-GGUF", gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat")` |
 
 ## ⚠️ Partially Working Models
 
