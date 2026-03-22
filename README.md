@@ -273,6 +273,85 @@ See [STRUCTURED_GENERATION.md](docs/STRUCTURED_GENERATION.md) for detailed docum
 
 **Note on Reliability**: Structured generation constrains the model's output tokens, but success rates vary by model size and schema complexity. Smaller models (< 7B parameters) may occasionally produce incomplete or invalid JSON, especially with complex schemas. Consider implementing retry logic or fallback strategies in production applications. Larger models generally perform much better with structured generation.
 
+## Tool Calling
+
+Red-candle supports tool/function calling, enabling models to invoke external functions during generation. This works best with models fine-tuned for tool calling, such as Qwen3.
+
+### Defining Tools
+
+```ruby
+calculator = Candle::Tool.new(
+  name: "calculate",
+  description: "Evaluate a math expression",
+  parameters: {
+    type: "object",
+    properties: { expression: { type: "string" } },
+    required: ["expression"]
+  }
+) { |args| eval(args["expression"]).to_f }
+```
+
+### Single-Turn Tool Calling
+
+`chat_with_tools` injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. By default, tools are **not** executed — you get the parsed tool calls back and decide what to do with them:
+
+```ruby
+llm = Candle::LLM.from_pretrained("Qwen/Qwen3-0.6B")
+
+messages = [{ role: "user", content: "Calculate 42 * 7" }]
+result = llm.chat_with_tools(messages, tools: [calculator],
+  config: Candle::GenerationConfig.deterministic(max_length: 500))
+
+if result.has_tool_calls?
+  result.tool_calls.each do |tc|
+    puts "#{tc.name}(#{tc.arguments})"
+    output = calculator.call(tc.arguments)
+    puts "=> #{output}"
+  end
+else
+  puts result.text_response
+end
+```
+
+Pass `execute: true` to automatically execute tools and get results back:
+
+```ruby
+result = llm.chat_with_tools(messages, tools: [calculator], execute: true,
+  config: Candle::GenerationConfig.deterministic(max_length: 500))
+
+result.tool_results.each do |tr|
+  puts "#{tr[:tool_call].name} => #{tr[:result]}"
+end
+```
+
+### Agent (Convenience Wrapper)
+
+`Candle::Agent` provides a simple multi-turn loop: generate → parse tool calls → execute → feed results back → repeat until the model produces a text answer or hits `max_iterations`. It's a convenience wrapper for quick prototyping — for production use, you'll likely want to manage the loop yourself (as RubyLLM and other frameworks do):
+
+```ruby
+agent = Candle::Agent.new(llm, tools: [calculator, lookup], max_iterations: 5)
+result = agent.run("What is the price of a widget, and how much would 3 cost?",
+  config: Candle::GenerationConfig.deterministic(max_length: 1000))
+
+puts result.response         # Final text answer
+puts result.iterations       # Number of generate cycles
+puts result.tool_calls_made  # Number of tools invoked
+```
+
+### Model Recommendations
+
+Tool calling quality depends heavily on model size:
+
+| Model | Tool Calling Quality |
+|-------|---------------------|
+| **Qwen3-8B GGUF** (~5 GB) | Calls correct tools, self-corrects errors, but may hallucinate values from tool results |
+| **Qwen3-4B GGUF** (~2.5 GB) | Calls correct tools, occasional reasoning errors |
+| **Qwen3-0.6B** (~1.2 GB) | Single-turn works, needs `max_length: 500+` for thinking |
+| SmolLM2-360M | Does not work |
+| TinyLlama-1.1B | Does not work (not fine-tuned for tool calling) |
+
+**Tip:** Qwen3 models use a `<think>` reasoning block before producing tool calls. Set `max_length` high enough (500+ for 0.6B, 1000+ for larger models) to allow room for both thinking and the tool call.
+
 ## ⚠️ Model Format Requirements
 
 ### EmbeddingModels and Rerankers: Safetensors Only

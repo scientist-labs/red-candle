@@ -265,8 +265,9 @@ module Candle
     end
 
     # Chat with tool calling support
-    # Returns a ToolCallResult with parsed tool calls and executed results
-    def chat_with_tools(messages, tools:, execute: true, **options)
+    # Returns a ToolCallResult with parsed tool calls
+    # Set execute: true to automatically execute tools (default: false)
+    def chat_with_tools(messages, tools:, execute: false, **options)
       tool_prompt = build_tool_system_prompt(tools)
       augmented = inject_tool_instructions(messages, tool_prompt)
 
