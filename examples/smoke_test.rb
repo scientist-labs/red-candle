@@ -53,6 +53,7 @@ llm_models = [
     options: { gguf_file: "phi-4-Q4_K_S.gguf" } },
   { name: "Yi-1.5 6B Chat (GGUF)", model: "bartowski/Yi-1.5-6B-Chat-GGUF",
     options: { gguf_file: "Yi-1.5-6B-Chat-Q4_K_M.gguf", tokenizer: "01-ai/Yi-1.5-6B-Chat" } },
+  { name: "Granite 7B (safetensors)", model: "ibm-granite/granite-7b-instruct" },
   { name: "Granite 4.0 Micro (safetensors)", model: "ibm-granite/granite-4.0-micro" },
   { name: "GLM-4 9B (GGUF)", model: "bartowski/THUDM_GLM-4-9B-0414-GGUF",
     options: { gguf_file: "THUDM_GLM-4-9B-0414-Q4_K_M.gguf", tokenizer: "THUDM/GLM-4-9B-0414" } },
