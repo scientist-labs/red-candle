@@ -163,7 +163,7 @@ if emb
     e
   end
   test("embedding (cls)", passed, failed) { emb.embedding("Hello", pooling_method: "cls") }
-  test("embedding (mean)", passed, failed) { emb.embedding("Hello", pooling_method: "mean") }
+  test("embedding (pooled)", passed, failed) { emb.embedding("Hello", pooling_method: "pooled") }
   test("embeddings (batch)", passed, failed) do
     results = emb.embeddings("Hello, world!")
     raise "empty" if results.values.empty?
@@ -260,8 +260,8 @@ if tok
   test("encode_to_tokens", passed, failed) { tok.encode_to_tokens("Hello, world!") }
   test("encode_with_tokens", passed, failed) do
     result = tok.encode_with_tokens("Hello")
-    raise "missing ids" unless result["ids"]
-    raise "missing tokens" unless result["tokens"]
+    raise "missing ids" unless result[:ids]
+    raise "missing tokens" unless result[:tokens]
     result
   end
   test("encode_batch", passed, failed) { tok.encode_batch(["Hello", "World"]) }
@@ -290,7 +290,7 @@ test("Tensor.zeros", passed, failed) { Candle::Tensor.zeros([2, 3]) }
 test("Tensor.ones", passed, failed) { Candle::Tensor.ones([2, 3]) }
 test("Tensor.rand", passed, failed) { Candle::Tensor.rand([2, 3]) }
 test("to_f / to_i", passed, failed) do
-  t = Candle::Tensor.new([42.0])
+  t = Candle::Tensor.new([42.0]).squeeze(0)
   raise "to_f failed" unless t.to_f == 42.0
   raise "to_i failed" unless t.to_i == 42
   t
