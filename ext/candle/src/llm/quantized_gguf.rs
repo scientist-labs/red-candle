@@ -5,6 +5,7 @@ use candle_transformers::models::quantized_gemma3::ModelWeights as QuantizedGemm
 use candle_transformers::models::quantized_qwen2::ModelWeights as QuantizedQwenModel;
 use candle_transformers::models::quantized_phi::ModelWeights as QuantizedPhiModel;
 use candle_transformers::models::quantized_phi3::ModelWeights as QuantizedPhi3Model;
+use candle_transformers::models::quantized_qwen3::ModelWeights as QuantizedQwen3Model;
 use hf_hub::api::tokio::{Api, ApiRepo};
 use tokenizers::Tokenizer;
 use std::io::Seek;
@@ -26,6 +27,7 @@ enum ModelType {
     Llama(QuantizedLlamaModel),
     Gemma(QuantizedGemmaModel),
     Qwen(QuantizedQwenModel),
+    Qwen3(QuantizedQwen3Model),
     Phi(QuantizedPhiModel),
     Phi3(QuantizedPhi3Model),
     // Mistral uses Llama loader due to tensor naming compatibility
@@ -114,19 +116,8 @@ impl QuantizedGGUF {
                     let model = QuantizedQwenModel::from_gguf(content, &mut file, &device)?;
                     ModelType::Qwen(model)
                 } else if content.metadata.contains_key("qwen3.attention.head_count") {
-                    // Qwen3 GGUF files use a different metadata format
-                    // The quantized_qwen3 module is not yet in the released version of candle-transformers
-                    return Err(candle_core::Error::Msg(format!(
-                        "Qwen3 GGUF format detected but not yet fully supported.\n\n\
-                        The file contains qwen3.* metadata keys which require candle-transformers > 0.9.1.\n\n\
-                        Current alternatives:\n\
-                        1. Use Qwen2.5 GGUF models which work well:\n\
-                           - Qwen/Qwen2.5-7B-Instruct-GGUF (recommended)\n\
-                           - Qwen/Qwen2.5-32B-Instruct-GGUF\n\
-                        2. Use non-quantized Qwen models with safetensors\n\
-                        3. Wait for candle-transformers update with quantized_qwen3 support\n\n\
-                        Note: Qwen2.5 models have similar capabilities to Qwen3."
-                    )));
+                    let model = QuantizedQwen3Model::from_gguf(content, &mut file, &device)?;
+                    ModelType::Qwen3(model)
                 } else {
                     // Last resort: try llama loader anyway, as it's the most common
                     let model = QuantizedLlamaModel::from_gguf(content, &mut file, &device)?;
@@ -547,9 +538,13 @@ impl QuantizedGGUF {
     
     /// Clear the KV cache between generations
     pub fn clear_kv_cache(&mut self) {
-        // Quantized models don't expose cache clearing methods
-        // Phi3 GGUF models have a known issue where the KV cache
-        // cannot be cleared, leading to errors on subsequent generations
+        // Only some quantized models expose clear_kv_cache
+        if let ModelType::Qwen3(model) = &mut self.model {
+            model.clear_kv_cache();
+        }
+        // Other quantized models (Llama, Gemma, Qwen2, Phi, Phi3) don't expose
+        // clear_kv_cache in candle-transformers. For these, the generate() method
+        // in Ruby calls clear_cache which recreates the model if needed.
     }
 
     fn generate_tokens(
@@ -577,6 +572,7 @@ impl QuantizedGGUF {
                 ModelType::Llama(model) => model.forward(&input, start_pos)?,
                 ModelType::Gemma(model) => model.forward(&input, start_pos)?,
                 ModelType::Qwen(model) => model.forward(&input, start_pos)?,
+                ModelType::Qwen3(model) => model.forward(&input, start_pos)?,
                 ModelType::Phi(model) => model.forward(&input, start_pos)?,
                 ModelType::Phi3(model) => model.forward(&input, start_pos)?,
             };
@@ -676,6 +672,6 @@ impl TextGenerator for QuantizedGGUF {
     }
     
     fn clear_cache(&mut self) {
-        // Quantized models manage cache internally
+        self.clear_kv_cache();
     }
 }

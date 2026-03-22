@@ -2,7 +2,7 @@ use magnus::{function, method, prelude::*, Error, Module, RArray, RHash, RModule
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::llm::{GenerationConfig as RustGenerationConfig, TextGenerator, mistral::Mistral as RustMistral, llama::Llama as RustLlama, gemma::Gemma as RustGemma, qwen::Qwen as RustQwen, phi::Phi as RustPhi, QuantizedGGUF as RustQuantizedGGUF};
+use crate::llm::{GenerationConfig as RustGenerationConfig, TextGenerator, mistral::Mistral as RustMistral, llama::Llama as RustLlama, gemma::Gemma as RustGemma, qwen::Qwen as RustQwen, qwen3::Qwen3 as RustQwen3, phi::Phi as RustPhi, QuantizedGGUF as RustQuantizedGGUF};
 use crate::ruby::{Result, Device};
 use crate::ruby::structured::StructuredConstraint;
 
@@ -12,6 +12,7 @@ enum ModelType {
     Llama(RustLlama),
     Gemma(RustGemma),
     Qwen(RustQwen),
+    Qwen3(RustQwen3),
     Phi(RustPhi),
     QuantizedGGUF(RustQuantizedGGUF),
 }
@@ -23,6 +24,7 @@ impl ModelType {
             ModelType::Llama(m) => m.generate(prompt, config),
             ModelType::Gemma(m) => m.generate(prompt, config),
             ModelType::Qwen(m) => m.generate(prompt, config),
+            ModelType::Qwen3(m) => m.generate(prompt, config),
             ModelType::Phi(m) => m.generate(prompt, config),
             ModelType::QuantizedGGUF(m) => m.generate(prompt, config),
         }
@@ -39,6 +41,7 @@ impl ModelType {
             ModelType::Llama(m) => m.generate_stream(prompt, config, callback),
             ModelType::Gemma(m) => m.generate_stream(prompt, config, callback),
             ModelType::Qwen(m) => m.generate_stream(prompt, config, callback),
+            ModelType::Qwen3(m) => m.generate_stream(prompt, config, callback),
             ModelType::Phi(m) => m.generate_stream(prompt, config, callback),
             ModelType::QuantizedGGUF(m) => m.generate_stream(prompt, config, callback),
         }
@@ -50,6 +53,7 @@ impl ModelType {
             ModelType::Llama(m) => m.clear_cache(),
             ModelType::Gemma(m) => m.clear_cache(),
             ModelType::Qwen(m) => m.clear_cache(),
+            ModelType::Qwen3(m) => m.clear_cache(),
             ModelType::Phi(m) => m.clear_cache(),
             ModelType::QuantizedGGUF(m) => m.clear_cache(),
         }
@@ -77,6 +81,7 @@ impl ModelType {
             ModelType::Llama(m) => m.apply_chat_template(messages),
             ModelType::Gemma(m) => m.apply_chat_template(messages),
             ModelType::Qwen(m) => m.apply_chat_template(messages),
+            ModelType::Qwen3(m) => m.apply_chat_template(messages),
             ModelType::Phi(m) => m.apply_chat_template(messages),
             ModelType::QuantizedGGUF(m) => m.apply_chat_template(messages),
         }
@@ -315,6 +320,18 @@ impl LLM {
                 }
                 .map_err(|e| Error::new(runtime_error, format!("Failed to load model: {}", e)))?;
                 ModelType::Gemma(gemma)
+            } else if model_lower_clean.contains("qwen3") {
+                let qwen3 = if tokenizer_source.is_some() {
+                    rt.block_on(async {
+                        RustQwen3::from_pretrained_with_tokenizer(&model_id_clean, candle_device, tokenizer_source).await
+                    })
+                } else {
+                    rt.block_on(async {
+                        RustQwen3::from_pretrained(&model_id_clean, candle_device).await
+                    })
+                }
+                .map_err(|e| Error::new(runtime_error, format!("Failed to load model: {}", e)))?;
+                ModelType::Qwen3(qwen3)
             } else if model_lower_clean.contains("qwen") {
                 let qwen = if tokenizer_source.is_some() {
                     rt.block_on(async {
@@ -423,6 +440,7 @@ impl LLM {
             ModelType::Llama(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::Gemma(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::Qwen(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
+            ModelType::Qwen3(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::Phi(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
             ModelType::QuantizedGGUF(m) => Ok(crate::ruby::tokenizer::Tokenizer(m.tokenizer().clone())),
         }
@@ -443,6 +461,7 @@ impl LLM {
                 ModelType::Llama(m) => m.eos_token_id(),
                 ModelType::Gemma(m) => m.eos_token_id(),
                 ModelType::Qwen(m) => m.eos_token_id(),
+                ModelType::Qwen3(m) => m.eos_token_id(),
                 ModelType::Phi(m) => m.eos_token_id(),
                 ModelType::QuantizedGGUF(m) => m.eos_token_id(),
             };
@@ -452,6 +471,7 @@ impl LLM {
                 ModelType::Llama(m) => m.tokenizer().clone(),
                 ModelType::Gemma(m) => m.tokenizer().clone(),
                 ModelType::Qwen(m) => m.tokenizer().clone(),
+                ModelType::Qwen3(m) => m.tokenizer().clone(),
                 ModelType::Phi(m) => m.tokenizer().clone(),
                 ModelType::QuantizedGGUF(m) => m.tokenizer().clone(),
             };
@@ -566,6 +586,7 @@ impl LLM {
             ModelType::Llama(_) => "Llama",
             ModelType::Gemma(_) => "Gemma",
             ModelType::Qwen(_) => "Qwen",
+            ModelType::Qwen3(_) => "Qwen3",
             ModelType::Phi(_) => "Phi",
             ModelType::QuantizedGGUF(_) => "QuantizedGGUF",
         };
