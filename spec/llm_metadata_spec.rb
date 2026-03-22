@@ -11,9 +11,9 @@ RSpec.describe "LLMMetadata" do
   end
   
   let(:llm) do
-    ModelCache.llm
-  rescue => e
-    skip "LLM model loading failed: #{e.message}"
+    model = ModelCache.llm
+    skip "LLM model not available (too large for CI)" unless model
+    model
   end
   
   # Clear cached models after this spec file completes to free memory
@@ -34,7 +34,7 @@ RSpec.describe "LLMMetadata" do
     
     it "returns correct model_id for non-GGUF model" do
       expect(llm).to respond_to(:model_id)
-      expect(llm.model_id).to eq("microsoft/phi-2")
+      expect(llm.model_id).to eq("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     end
   end
   
@@ -75,8 +75,8 @@ RSpec.describe "LLMMetadata" do
       end
       
       it "has correct values" do
-        expect(options["model_id"]).to eq("microsoft/phi-2")
-        expect(options["model_type"]).to eq("Phi")
+        expect(options["model_id"]).to eq("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        expect(options["model_type"]).to eq("Llama")
         expect(options["device"]).to eq("cpu")
       end
       
