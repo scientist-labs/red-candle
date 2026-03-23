@@ -28,7 +28,7 @@ module Candle
             "Agent exceeded maximum iterations (#{@max_iterations})"
         end
 
-        result = @llm.chat(messages, tools: @tools, execute: true, **options)
+        result = @llm.chat_with_tools(messages, tools: @tools, execute: true, **options)
 
         if result.has_tool_calls?
           # If the model produced a substantial text answer alongside tool calls,

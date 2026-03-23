@@ -167,16 +167,16 @@ if tool_llm
 
   tool_config = Candle::GenerationConfig.deterministic(max_length: 500)
 
-  test("chat with tools (no execute)", passed, failed) do
+  test("chat_with_tools (no execute)", passed, failed) do
     messages = [{ role: "user", content: "Calculate 6 * 7" }]
-    result = tool_llm.chat(messages, tools: [calculator], config: tool_config)
+    result = tool_llm.chat_with_tools(messages, tools: [calculator], config: tool_config)
     raise "expected ToolCallResult" unless result.is_a?(Candle::ToolCallResult)
     result
   end
 
-  test("chat with tools (execute: true)", passed, failed) do
+  test("chat_with_tools (execute: true)", passed, failed) do
     messages = [{ role: "user", content: "Calculate 6 * 7" }]
-    result = tool_llm.chat(messages, tools: [calculator], execute: true, config: tool_config)
+    result = tool_llm.chat_with_tools(messages, tools: [calculator], execute: true, config: tool_config)
     raise "expected ToolCallResult" unless result.is_a?(Candle::ToolCallResult)
     result
   end

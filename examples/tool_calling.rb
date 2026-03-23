@@ -23,7 +23,7 @@ config = Candle::GenerationConfig.deterministic(max_length: 500)
 # --- Default: parse tool calls without executing ---
 puts "=== Tool Calling (parse only) ==="
 messages = [{ role: "user", content: "What's the weather in San Francisco?" }]
-result = llm.chat(messages, tools: [get_weather], config: config)
+result = llm.chat_with_tools(messages, tools: [get_weather], config: config)
 
 if result.has_tool_calls?
   result.tool_calls.each do |tc|
@@ -41,7 +41,7 @@ end
 puts
 puts "=== Tool Calling (auto-execute) ==="
 messages = [{ role: "user", content: "What's the weather in Tokyo?" }]
-result = llm.chat(messages, tools: [get_weather], execute: true, config: config)
+result = llm.chat_with_tools(messages, tools: [get_weather], execute: true, config: config)
 
 if result.has_tool_calls?
   result.tool_results.each do |tr|
