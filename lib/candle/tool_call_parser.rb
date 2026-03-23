@@ -6,12 +6,10 @@ module Candle
   class ToolCallParser
     DEFAULT_PATTERN = /<tool_call>\s*(.*?)\s*<\/tool_call>/m
 
-    class << self
-      attr_writer :pattern
+    attr_reader :pattern
 
-      def pattern
-        @pattern || DEFAULT_PATTERN
-      end
+    def initialize(pattern: DEFAULT_PATTERN)
+      @pattern = pattern
     end
 
     ParseResult = Struct.new(:text_response, :tool_calls, keyword_init: true) do
@@ -20,10 +18,10 @@ module Candle
       end
     end
 
-    def self.parse(text, available_tools: [], pattern: self.pattern)
+    def parse(text, available_tools: [])
       tool_calls = []
 
-      text.scan(pattern) do |match|
+      text.scan(@pattern) do |match|
         json_str = match[0].strip
         begin
           parsed = JSON.parse(json_str)
@@ -42,13 +40,18 @@ module Candle
       # Deduplicate identical tool calls (models sometimes repeat the same call)
       tool_calls.uniq! { |tc| [tc.name, tc.arguments] }
 
-      remaining_text = text.gsub(pattern, "").strip
+      remaining_text = text.gsub(@pattern, "").strip
       remaining_text = nil if remaining_text.empty?
 
       ParseResult.new(
         text_response: remaining_text,
         tool_calls: tool_calls
       )
+    end
+
+    # Convenience class method using the default pattern
+    def self.parse(text, available_tools: [])
+      new.parse(text, available_tools: available_tools)
     end
   end
 end
