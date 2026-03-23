@@ -252,7 +252,7 @@ module Candle
       base_model
     end
     
-    # Simple chat interface for instruction models
+    # Chat interface — always returns a String
     def chat(messages, **options)
       prompt = apply_chat_template(messages)
       generate(prompt, **options)
@@ -263,7 +263,48 @@ module Candle
       prompt = apply_chat_template(messages)
       generate_stream(prompt, **options, &block)
     end
-    
+
+    # Chat with tool calling — always returns a ToolCallResult
+    # Set execute: true to automatically run the tools (default: false)
+    def chat_with_tools(messages, tools:, execute: false, **options)
+      tool_prompt = build_tool_system_prompt(tools)
+      augmented = inject_tool_instructions(messages, tool_prompt)
+
+      raw_response = chat(augmented, **options)
+
+      result = ToolCallParser.parse(raw_response, available_tools: tools)
+
+      if result.has_tool_calls? && execute
+        tool_results = result.tool_calls.map do |tool_call|
+          tool = tools.find { |t| t.name == tool_call.name }
+          unless tool
+            next { tool_call: tool_call, result: nil, error: "Unknown tool: #{tool_call.name}" }
+          end
+
+          begin
+            output = tool.call(tool_call.arguments)
+            { tool_call: tool_call, result: output, error: nil }
+          rescue Exception => e
+            { tool_call: tool_call, result: nil, error: e.message }
+          end
+        end
+
+        ToolCallResult.new(
+          tool_calls: result.tool_calls,
+          tool_results: tool_results,
+          text_response: result.text_response,
+          raw_response: raw_response
+        )
+      else
+        ToolCallResult.new(
+          tool_calls: result.tool_calls,
+          tool_results: [],
+          text_response: result.has_tool_calls? ? result.text_response : raw_response,
+          raw_response: raw_response
+        )
+      end
+    end
+
     # Inspect method for debugging and exploration
     def inspect
       opts = options rescue {}
@@ -353,6 +394,27 @@ module Candle
     end
 
     private
+
+    def build_tool_system_prompt(tools)
+      tool_defs = tools.map { |t| JSON.generate(t.to_tool_definition) }.join("\n\n")
+      "You are a helpful assistant with access to the following tools:\n\n" \
+        "#{tool_defs}\n\n" \
+        "When you need to use a tool, respond with a tool call in the following format:\n" \
+        "<tool_call>\n" \
+        "{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}\n" \
+        "</tool_call>\n\n" \
+        "If you don't need to use a tool, respond normally with text."
+    end
+
+    def inject_tool_instructions(messages, tool_prompt)
+      msgs = messages.map { |m| m.dup }
+      if msgs.first && msgs.first[:role] == "system"
+        msgs.first[:content] = "#{tool_prompt}\n\n#{msgs.first[:content]}"
+      else
+        msgs.unshift({ role: "system", content: tool_prompt })
+      end
+      msgs
+    end
 
     # Extract JSON content from generated text, handling stop tokens and extra content
     def extract_json_content(text)
