@@ -291,9 +291,9 @@ get_weather = Candle::Tool.new(
 ) { |args| { city: args["city"], temperature: 72, condition: "sunny" } }
 ```
 
-### Single-Turn Tool Calling
+### Extracting Tool Calls
 
-`chat_with_tools` injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. By default, tools are **not** executed — you get the parsed tool calls back and decide what to do with them:
+`chat_with_tools` injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. It does **not** feed results back to the model — it just tells you what the model wants to call. You decide what to do with it:
 
 ```ruby
 llm = Candle::LLM.from_pretrained("Qwen/Qwen3-0.6B")
@@ -313,7 +313,7 @@ else
 end
 ```
 
-Pass `execute: true` to automatically execute tools and get results back:
+Pass `execute: true` to automatically run the tools (but still no round-trip back to the model):
 
 ```ruby
 result = llm.chat_with_tools(messages, tools: [get_weather], execute: true,
@@ -324,16 +324,16 @@ result.tool_results.each do |tr|
 end
 ```
 
-### Agent (Convenience Wrapper)
+### Agent (Multi-Turn Tool Loop)
 
-`Candle::Agent` provides a simple multi-turn loop: generate → parse tool calls → execute → feed results back → repeat until the model produces a text answer or hits `max_iterations`. It's a convenience wrapper for quick prototyping — for production use, you'll likely want to manage the loop yourself (as RubyLLM and other frameworks do):
+`Candle::Agent` completes the round-trip: generate → parse tool calls → execute → feed results back to the model → repeat until the model produces a final text answer or hits `max_iterations`. This is a convenience wrapper for quick prototyping — for production use, frameworks like [RubyLLM](https://github.com/crmne/ruby_llm) manage this loop for you via the [ruby_llm-red_candle](https://github.com/scientist-labs/ruby_llm-red_candle) plugin:
 
 ```ruby
-agent = Candle::Agent.new(llm, tools: [calculator, lookup], max_iterations: 5)
-result = agent.run("What is the price of a widget, and how much would 3 cost?",
+agent = Candle::Agent.new(llm, tools: [get_weather, lookup_price], max_iterations: 5)
+result = agent.run("What's the weather in Paris, and how much does a widget cost?",
   config: Candle::GenerationConfig.deterministic(max_length: 1000))
 
-puts result.response         # Final text answer
+puts result.response         # Final text answer from the model
 puts result.iterations       # Number of generate cycles
 puts result.tool_calls_made  # Number of tools invoked
 ```
