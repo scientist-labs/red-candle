@@ -252,26 +252,21 @@ module Candle
       base_model
     end
     
-    # Simple chat interface for instruction models
-    def chat(messages, **options)
-      prompt = apply_chat_template(messages)
-      generate(prompt, **options)
-    end
+    # Chat interface for instruction models
+    # When tools are provided, injects tool definitions into the system prompt
+    # and parses <tool_call> tags from the response.
+    # Returns a String when no tools, or a ToolCallResult when tools are provided.
+    # Set execute: true to automatically execute tools (default: false).
+    def chat(messages, tools: [], execute: false, **options)
+      if tools.empty?
+        prompt = apply_chat_template(messages)
+        return generate(prompt, **options)
+      end
 
-    # Streaming chat interface
-    def chat_stream(messages, **options, &block)
-      prompt = apply_chat_template(messages)
-      generate_stream(prompt, **options, &block)
-    end
-
-    # Chat with tool calling support
-    # Returns a ToolCallResult with parsed tool calls
-    # Set execute: true to automatically execute tools (default: false)
-    def chat_with_tools(messages, tools:, execute: false, **options)
       tool_prompt = build_tool_system_prompt(tools)
       augmented = inject_tool_instructions(messages, tool_prompt)
-
-      raw_response = chat(augmented, **options)
+      prompt = apply_chat_template(augmented)
+      raw_response = generate(prompt, **options)
 
       result = ToolCallParser.parse(raw_response, available_tools: tools)
 
@@ -304,6 +299,12 @@ module Candle
           raw_response: raw_response
         )
       end
+    end
+
+    # Streaming chat interface (no tool support — tools require full response parsing)
+    def chat_stream(messages, **options, &block)
+      prompt = apply_chat_template(messages)
+      generate_stream(prompt, **options, &block)
     end
 
     # Inspect method for debugging and exploration

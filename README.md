@@ -293,13 +293,13 @@ get_weather = Candle::Tool.new(
 
 ### Extracting Tool Calls
 
-`chat_with_tools` injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. It does **not** feed results back to the model — it just tells you what the model wants to call. You decide what to do with it:
+`chat` with tools injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. It does **not** feed results back to the model — it just tells you what the model wants to call. You decide what to do with it:
 
 ```ruby
 llm = Candle::LLM.from_pretrained("Qwen/Qwen3-0.6B")
 
 messages = [{ role: "user", content: "What's the weather in San Francisco?" }]
-result = llm.chat_with_tools(messages, tools: [get_weather],
+result = llm.chat(messages, tools: [get_weather],
   config: Candle::GenerationConfig.deterministic(max_length: 500))
 
 if result.has_tool_calls?
@@ -316,7 +316,7 @@ end
 Pass `execute: true` to automatically run the tools (but still no round-trip back to the model):
 
 ```ruby
-result = llm.chat_with_tools(messages, tools: [get_weather], execute: true,
+result = llm.chat(messages, tools: [get_weather], execute: true,
   config: Candle::GenerationConfig.deterministic(max_length: 500))
 
 result.tool_results.each do |tr|

@@ -41,7 +41,7 @@ RSpec.describe Candle::Agent do
   describe "#run" do
     it "returns text response when no tool calls" do
       mock_llm = double("llm")
-      allow(mock_llm).to receive(:chat_with_tools).and_return(
+      allow(mock_llm).to receive(:chat).and_return(
         Candle::ToolCallResult.new(
           tool_calls: [],
           tool_results: [],
@@ -62,7 +62,7 @@ RSpec.describe Candle::Agent do
       mock_llm = double("llm")
       call_count = 0
 
-      allow(mock_llm).to receive(:chat_with_tools) do |_messages, **_opts|
+      allow(mock_llm).to receive(:chat) do |_messages, **_opts|
         call_count += 1
         if call_count == 1
           Candle::ToolCallResult.new(
@@ -91,7 +91,7 @@ RSpec.describe Candle::Agent do
 
     it "raises error when max iterations exceeded" do
       mock_llm = double("llm")
-      allow(mock_llm).to receive(:chat_with_tools).and_return(
+      allow(mock_llm).to receive(:chat).and_return(
         Candle::ToolCallResult.new(
           tool_calls: [Candle::ToolCall.new(name: "echo", arguments: {})],
           tool_results: [{ tool_call: nil, result: "ok", error: nil }],
