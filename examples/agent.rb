@@ -8,18 +8,18 @@ llm = Candle::LLM.from_pretrained(
   tokenizer: "Qwen/Qwen3-4B"
 )
 
-# Define tools
-calculator = Candle::Tool.new(
-  name: "calculate",
-  description: "Evaluate a math expression and return the result",
+# Define tools the model can't answer without
+get_weather = Candle::Tool.new(
+  name: "get_weather",
+  description: "Get the current weather for a city",
   parameters: {
     type: "object",
-    properties: { expression: { type: "string" } },
-    required: ["expression"]
+    properties: { city: { type: "string", description: "City name" } },
+    required: ["city"]
   }
-) { |args| eval(args["expression"]).to_f }
+) { |args| { city: args["city"], temperature: 72, condition: "sunny", humidity: 45 } }
 
-lookup = Candle::Tool.new(
+lookup_price = Candle::Tool.new(
   name: "lookup_price",
   description: "Look up the unit price of a product in dollars",
   parameters: {
@@ -33,8 +33,8 @@ config = Candle::GenerationConfig.deterministic(max_length: 1000)
 
 # Agent handles the multi-turn loop automatically:
 # generate -> parse tool calls -> execute -> feed results back -> repeat
-agent = Candle::Agent.new(llm, tools: [calculator, lookup], max_iterations: 5)
-result = agent.run("What is the price of a widget, and how much would 3 cost?", config: config)
+agent = Candle::Agent.new(llm, tools: [get_weather, lookup_price], max_iterations: 5)
+result = agent.run("What's the weather in Paris, and how much does a widget cost?", config: config)
 
 puts "--- Conversation ---"
 result.messages.each do |m|

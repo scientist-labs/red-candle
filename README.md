@@ -280,15 +280,15 @@ Red-candle supports tool/function calling, enabling models to invoke external fu
 ### Defining Tools
 
 ```ruby
-calculator = Candle::Tool.new(
-  name: "calculate",
-  description: "Evaluate a math expression",
+get_weather = Candle::Tool.new(
+  name: "get_weather",
+  description: "Get the current weather for a city",
   parameters: {
     type: "object",
-    properties: { expression: { type: "string" } },
-    required: ["expression"]
+    properties: { city: { type: "string", description: "City name" } },
+    required: ["city"]
   }
-) { |args| eval(args["expression"]).to_f }
+) { |args| { city: args["city"], temperature: 72, condition: "sunny" } }
 ```
 
 ### Single-Turn Tool Calling
@@ -298,14 +298,14 @@ calculator = Candle::Tool.new(
 ```ruby
 llm = Candle::LLM.from_pretrained("Qwen/Qwen3-0.6B")
 
-messages = [{ role: "user", content: "Calculate 42 * 7" }]
-result = llm.chat_with_tools(messages, tools: [calculator],
+messages = [{ role: "user", content: "What's the weather in San Francisco?" }]
+result = llm.chat_with_tools(messages, tools: [get_weather],
   config: Candle::GenerationConfig.deterministic(max_length: 500))
 
 if result.has_tool_calls?
   result.tool_calls.each do |tc|
     puts "#{tc.name}(#{tc.arguments})"
-    output = calculator.call(tc.arguments)
+    output = get_weather.call(tc.arguments)
     puts "=> #{output}"
   end
 else
@@ -316,7 +316,7 @@ end
 Pass `execute: true` to automatically execute tools and get results back:
 
 ```ruby
-result = llm.chat_with_tools(messages, tools: [calculator], execute: true,
+result = llm.chat_with_tools(messages, tools: [get_weather], execute: true,
   config: Candle::GenerationConfig.deterministic(max_length: 500))
 
 result.tool_results.each do |tr|
