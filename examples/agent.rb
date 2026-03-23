@@ -36,12 +36,14 @@ config = Candle::GenerationConfig.deterministic(max_length: 1000)
 agent = Candle::Agent.new(llm, tools: [calculator, lookup], max_iterations: 5)
 result = agent.run("What is the price of a widget, and how much would 3 cost?", config: config)
 
-puts "Answer: #{result.response}"
+puts "--- Conversation ---"
+result.messages.each do |m|
+  content = m[:content].to_s.gsub(/<think>.*?<\/think>/m, "").strip
+  next if content.empty?
+  puts "#{m[:role]}: #{content[0..200]}"
+  puts
+end
+puts "--- Summary ---"
+puts "Final answer: #{result.response.to_s.gsub(/<think>.*?<\/think>/m, "").strip}"
 puts "Iterations: #{result.iterations}"
 puts "Tool calls made: #{result.tool_calls_made}"
-puts
-puts "--- Full conversation ---"
-result.messages.each do |m|
-  puts "#{m[:role]}: #{m[:content][0..200]}"
-  puts "---"
-end
