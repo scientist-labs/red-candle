@@ -32,8 +32,10 @@ module Candle
 
         if result.has_tool_calls?
           # If the model produced a substantial text answer alongside tool calls,
-          # treat it as a final response (model is done, trailing tool calls are noise)
-          if result.text_response && result.text_response.length > 50
+          # treat it as a final response (model is done, trailing tool calls are noise).
+          # Strip <think> blocks so they don't count toward the length check.
+          text_without_thinking = result.text_response&.gsub(/<think>.*?<\/think>/m, "")&.strip
+          if text_without_thinking && text_without_thinking.length > 50
             return AgentResult.new(
               response: result.text_response,
               messages: messages,

@@ -35,8 +35,6 @@ module Candle
       tool_calls.uniq! { |tc| [tc.name, tc.arguments] }
 
       remaining_text = text.gsub(TOOL_CALL_PATTERN, "").strip
-      # Strip <think> blocks from the text response
-      remaining_text = remaining_text.gsub(/<think>.*?<\/think>/m, "").strip
       remaining_text = nil if remaining_text.empty?
 
       ParseResult.new(
