@@ -1,9 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.7.0)"
+        required: true
+        type: string
 
 jobs:
   release:
@@ -11,22 +14,29 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
           bundler-cache: true
 
-      - name: Verify version matches tag
+      - name: Update version
         run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/}"
-          GEM_VERSION=$(ruby -r ./lib/candle/version -e "puts Candle::VERSION")
-          if [ "$TAG_VERSION" != "$GEM_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match gem version ($GEM_VERSION)"
-            exit 1
-          fi
-          echo "Version: $GEM_VERSION"
+          VERSION="${{ inputs.version }}"
+          sed -i "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" lib/candle/version.rb
+          echo "Updated version to $VERSION"
+          cat lib/candle/version.rb
+
+      - name: Commit and tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add lib/candle/version.rb
+          git commit -m "Release v$VERSION"
+          git tag "$VERSION"
+          git push origin HEAD:${{ github.ref_name }} --tags
 
       - name: Build gem
         run: gem build candle.gemspec
@@ -43,7 +53,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${{ inputs.version }}"
           gh release create "$VERSION" \
             --title "v$VERSION" \
             --generate-notes \
