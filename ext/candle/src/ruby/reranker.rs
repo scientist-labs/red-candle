@@ -3,6 +3,12 @@ use candle_transformers::models::bert::{BertModel, Config as BertConfig};
 use candle_transformers::models::xlm_roberta::{
     XLMRobertaForSequenceClassification, Config as XLMRobertaConfig,
 };
+use candle_transformers::models::debertav2::{
+    DebertaV2Model, DebertaV2ContextPooler, Config as DebertaV2Config,
+};
+use candle_transformers::models::modernbert::{
+    ModernBert, Config as ModernBertConfig,
+};
 use candle_core::{Device as CoreDevice, Tensor, IndexOp, DType};
 use candle_nn::{VarBuilder, Linear, Module, ops::sigmoid};
 use hf_hub::{api::sync::Api, Repo, RepoType};
@@ -18,6 +24,19 @@ enum RerankerModel {
     },
     XLMRoberta {
         model: XLMRobertaForSequenceClassification,
+        pad_token_id: u32,
+    },
+    DeBERTa {
+        model: DebertaV2Model,
+        pooler: DebertaV2ContextPooler,
+        classifier: Linear,
+        pad_token_id: u32,
+    },
+    ModernBert {
+        model: ModernBert,
+        head_dense: Linear,
+        head_norm: candle_nn::LayerNorm,
+        classifier: Linear,
         pad_token_id: u32,
     },
 }
@@ -71,6 +90,27 @@ impl Reranker {
                     let pad_token_id = config.pad_token_id;
                     let model = XLMRobertaForSequenceClassification::new(1, &config, vb)?;
                     RerankerModel::XLMRoberta { model, pad_token_id }
+                }
+                "deberta-v2" => {
+                    let config: DebertaV2Config = serde_json::from_str(&config_str)?;
+                    let pad_token_id = config.pad_token_id.unwrap_or(0) as u32;
+                    let model = DebertaV2Model::load(vb.pp("deberta"), &config)?;
+                    let pooler = DebertaV2ContextPooler::load(vb.clone(), &config)?;
+                    let pooler_hidden_size = config.pooler_hidden_size.unwrap_or(config.hidden_size);
+                    let num_labels = config.id2label.as_ref().map_or(1, |m| m.len());
+                    let classifier = candle_nn::linear(pooler_hidden_size, num_labels, vb.pp("classifier"))?;
+                    RerankerModel::DeBERTa { model, pooler, classifier, pad_token_id }
+                }
+                "modernbert" => {
+                    let config: ModernBertConfig = serde_json::from_str(&config_str)?;
+                    let pad_token_id = config.pad_token_id;
+                    let model = ModernBert::load(vb.clone(), &config)?;
+                    // ModernBertHead::load is private, so load the head layers manually
+                    let head_vb = vb.pp("head");
+                    let head_dense = candle_nn::linear_no_bias(config.hidden_size, config.hidden_size, head_vb.pp("dense"))?;
+                    let head_norm = candle_nn::layer_norm_no_bias(config.hidden_size, config.layer_norm_eps, head_vb.pp("norm"))?;
+                    let classifier = candle_nn::linear(config.hidden_size, 1, vb.pp("classifier"))?;
+                    RerankerModel::ModernBert { model, head_dense, head_norm, classifier, pad_token_id }
                 }
                 _ => {
                     let config: BertConfig = serde_json::from_str(&config_str)?;
@@ -234,6 +274,48 @@ impl Reranker {
                 // XLMRobertaForSequenceClassification returns logits directly
                 let logits = model.forward(&token_ids, &attention_mask, &token_type_ids)
                     .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                logits.squeeze(1)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+            RerankerModel::DeBERTa { model, pooler, classifier, pad_token_id } => {
+                let attention_mask = token_ids.ne(*pad_token_id)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+
+                // Forward through DeBERTa encoder
+                let encoder_output = model.forward(&token_ids, Some(token_type_ids.clone()), Some(attention_mask))
+                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+
+                // Pool and classify
+                let pooled = pooler.forward(&encoder_output)
+                    .map_err(|e| Error::new(runtime_error, format!("Pooler forward failed: {}", e)))?;
+                let logits = classifier.forward(&pooled)
+                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                logits.squeeze(1)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+            RerankerModel::ModernBert { model, head_dense, head_norm, classifier, pad_token_id } => {
+                let attention_mask = token_ids.ne(*pad_token_id)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+                let attention_mask_f32 = attention_mask.to_dtype(DType::F32)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to convert attention mask: {}", e)))?;
+
+                // Forward through ModernBERT encoder
+                let encoder_output = model.forward(&token_ids, &attention_mask_f32)
+                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+
+                // CLS pooling, then head (dense + GELU + norm) + classifier
+                let cls = encoder_output.i((.., 0, ..))
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to extract CLS: {}", e)))?
+                    .contiguous()
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to make contiguous: {}", e)))?;
+                let hidden = head_dense.forward(&cls)
+                    .map_err(|e| Error::new(runtime_error, format!("Head dense failed: {}", e)))?;
+                let hidden = hidden.gelu_erf()
+                    .map_err(|e| Error::new(runtime_error, format!("GELU activation failed: {}", e)))?;
+                let hidden = head_norm.forward(&hidden)
+                    .map_err(|e| Error::new(runtime_error, format!("Head norm failed: {}", e)))?;
+                let logits = classifier.forward(&hidden)
+                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
                 logits.squeeze(1)
                     .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
             }

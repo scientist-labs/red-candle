@@ -100,6 +100,8 @@ model = Candle::EmbeddingModel.from_pretrained("sentence-transformers/all-MiniLM
 |:-------------|:-------|:------|
 | BERT | `bert` | Manual pooler + classifier layers. Pooling method configurable (`pooler`, `cls`, `mean`). |
 | XLM-RoBERTa | `xlm_roberta` | Built-in classification head via `XLMRobertaForSequenceClassification`. Pooling method ignored. |
+| DeBERTa v2/v3 | `debertav2` | Context pooler + classifier. Used by Mixedbread mxbai-rerank models (BEIR leaderboard leaders). |
+| ModernBERT | `modernbert` | CLS pooling + head + classifier. Best accuracy-per-parameter ratio. |
 
 Model type is auto-detected from `config.json` `model_type` field.
 
@@ -107,10 +109,13 @@ Model type is auto-detected from `config.json` `model_type` field.
 
 | Model | Architecture | Params | Quality | Initializer |
 |:------|:-------------|:-------|:--------|:------------|
-| BGE Reranker Base | XLM-RoBERTa | 278M | Recommended | `Candle::Reranker.from_pretrained("BAAI/bge-reranker-base")` |
-| BGE Reranker Large | XLM-RoBERTa | 560M | Best quality | `Candle::Reranker.from_pretrained("BAAI/bge-reranker-large")` |
+| BGE Reranker Base | XLM-RoBERTa | 278M | Strong quality | `Candle::Reranker.from_pretrained("BAAI/bge-reranker-base")` |
+| BGE Reranker Large | XLM-RoBERTa | 560M | Best BGE quality | `Candle::Reranker.from_pretrained("BAAI/bge-reranker-large")` |
 | BGE Reranker v2 M3 | XLM-RoBERTa | 568M | Multilingual | `Candle::Reranker.from_pretrained("BAAI/bge-reranker-v2-m3")` |
 | Jina Reranker v2 | XLM-RoBERTa | 278M | Multilingual | `Candle::Reranker.from_pretrained("jinaai/jina-reranker-v2-base-multilingual")` |
+| mxbai Rerank Base v1 | DeBERTa v3 | 184M | BEIR leader | `Candle::Reranker.from_pretrained("mixedbread-ai/mxbai-rerank-base-v1")` |
+| mxbai Rerank Large v1 | DeBERTa v3 | 435M | BEIR leader (large) | `Candle::Reranker.from_pretrained("mixedbread-ai/mxbai-rerank-large-v1")` |
+| GTE Reranker ModernBERT | ModernBERT | 149M | Best accuracy/size ratio | `Candle::Reranker.from_pretrained("Alibaba-NLP/gte-reranker-modernbert-base")` |
 | MiniLM L-12 v2 | BERT | 33M | Lightweight | `Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-12-v2")` |
 | MiniLM L-6 v2 | BERT | 22M | Fastest | `Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-6-v2")` |
 

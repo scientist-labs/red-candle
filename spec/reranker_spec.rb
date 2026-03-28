@@ -118,3 +118,71 @@ RSpec.describe "Reranker (XLM-RoBERTa)" do
     end
   end
 end
+
+RSpec.describe "Reranker (DeBERTa)" do
+  let(:reranker) do
+    @deberta_reranker ||= Candle::Reranker.from_pretrained("mixedbread-ai/mxbai-rerank-base-v1")
+  end
+
+  after(:all) do
+    @deberta_reranker = nil
+    GC.start
+  end
+
+  describe "#rerank" do
+    it "reranks documents based on query relevance" do
+      query = "What is the capital of France?"
+      documents = [
+        "The capital of France is Paris.",
+        "Berlin is the capital of Germany.",
+        "The weather in London is rainy."
+      ]
+
+      ranked_documents = reranker.rerank(query, documents)
+
+      expect(ranked_documents.length).to eq(3)
+      expect(ranked_documents[0][:text]).to eq("The capital of France is Paris.")
+      expect(ranked_documents[0][:score]).to be > ranked_documents[1][:score]
+    end
+  end
+
+  describe "model metadata" do
+    it "reports the correct model_id" do
+      expect(reranker.model_id).to eq("mixedbread-ai/mxbai-rerank-base-v1")
+    end
+  end
+end
+
+RSpec.describe "Reranker (ModernBERT)" do
+  let(:reranker) do
+    @modernbert_reranker ||= Candle::Reranker.from_pretrained("Alibaba-NLP/gte-reranker-modernbert-base")
+  end
+
+  after(:all) do
+    @modernbert_reranker = nil
+    GC.start
+  end
+
+  describe "#rerank" do
+    it "reranks documents based on query relevance" do
+      query = "What is the capital of France?"
+      documents = [
+        "The capital of France is Paris.",
+        "Berlin is the capital of Germany.",
+        "The weather in London is rainy."
+      ]
+
+      ranked_documents = reranker.rerank(query, documents)
+
+      expect(ranked_documents.length).to eq(3)
+      expect(ranked_documents[0][:text]).to eq("The capital of France is Paris.")
+      expect(ranked_documents[0][:score]).to be > ranked_documents[1][:score]
+    end
+  end
+
+  describe "model metadata" do
+    it "reports the correct model_id" do
+      expect(reranker.model_id).to eq("Alibaba-NLP/gte-reranker-modernbert-base")
+    end
+  end
+end

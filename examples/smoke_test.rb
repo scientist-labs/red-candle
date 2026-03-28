@@ -294,6 +294,40 @@ if bge_reranker
   GC.start(full_mark: true, immediate_sweep: true)
 end
 
+deberta_reranker = test("load (DeBERTa / mxbai)", passed, failed) do
+  Candle::Reranker.from_pretrained("mixedbread-ai/mxbai-rerank-base-v1", device: device)
+end
+
+if deberta_reranker
+  docs = ["Ruby is a programming language", "Python is a snake", "Java is an island"]
+  test("rerank (deberta)", passed, failed) do
+    results = deberta_reranker.rerank("What is Ruby?", docs)
+    raise "wrong top result" unless results[0][:text].include?("Ruby")
+    results
+  end
+  test("inspect", passed, failed) { deberta_reranker.inspect }
+
+  deberta_reranker = nil
+  GC.start(full_mark: true, immediate_sweep: true)
+end
+
+modernbert_reranker = test("load (ModernBERT / gte)", passed, failed) do
+  Candle::Reranker.from_pretrained("Alibaba-NLP/gte-reranker-modernbert-base", device: device)
+end
+
+if modernbert_reranker
+  docs = ["Ruby is a programming language", "Python is a snake", "Java is an island"]
+  test("rerank (modernbert)", passed, failed) do
+    results = modernbert_reranker.rerank("What is Ruby?", docs)
+    raise "wrong top result" unless results[0][:text].include?("Ruby")
+    results
+  end
+  test("inspect", passed, failed) { modernbert_reranker.inspect }
+
+  modernbert_reranker = nil
+  GC.start(full_mark: true, immediate_sweep: true)
+end
+
 # ============================================================
 # NER
 # ============================================================

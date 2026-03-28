@@ -117,10 +117,14 @@ graph TB
         RP[Pooler Linear]
         RC[Classifier Linear]
         RX[XLMRobertaForSequenceClassification]
+        RD[DebertaV2Model + ContextPooler]
+        RMB[ModernBert + Head]
 
         R --> RME
         RME --> RM
         RME --> RX
+        RME --> RD
+        RME --> RMB
         RM --> RP
         RM --> RC
     end
