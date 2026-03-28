@@ -328,6 +328,24 @@ if modernbert_reranker
   GC.start(full_mark: true, immediate_sweep: true)
 end
 
+qwen3_reranker = test("load (Qwen3 / decoder-based)", passed, failed) do
+  Candle::Reranker.from_pretrained("Qwen/Qwen3-Reranker-0.6B", device: device)
+end
+
+if qwen3_reranker
+  docs = ["Ruby is a programming language", "Python is a snake", "Java is an island"]
+  test("rerank (qwen3)", passed, failed) do
+    results = qwen3_reranker.rerank("What is Ruby?", docs)
+    raise "wrong top result" unless results[0][:text].include?("Ruby")
+    raise "score not in 0-1 range" unless results[0][:score] >= 0.0 && results[0][:score] <= 1.0
+    results
+  end
+  test("inspect", passed, failed) { qwen3_reranker.inspect }
+
+  qwen3_reranker = nil
+  GC.start(full_mark: true, immediate_sweep: true)
+end
+
 # ============================================================
 # NER
 # ============================================================
