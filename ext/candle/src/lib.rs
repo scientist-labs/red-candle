@@ -46,6 +46,7 @@ fn init(ruby: &Ruby) -> Result<()> {
     ruby::init_llm(rb_candle)?;
     ruby::ner::init(rb_candle)?;
     ruby::reranker::init(rb_candle)?;
+    ruby::vlm::init(rb_candle)?;
     ruby::dtype::init(rb_candle)?;
     ruby::device::init(rb_candle)?;
     ruby::tensor::init(rb_candle)?;
