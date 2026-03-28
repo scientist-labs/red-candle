@@ -1,5 +1,14 @@
 use magnus::{function, method, prelude::*, Error, RModule, RArray, RHash, Ruby};
-use candle_transformers::models::bert::{BertModel, Config};
+use candle_transformers::models::bert::{BertModel, Config as BertConfig};
+use candle_transformers::models::xlm_roberta::{
+    XLMRobertaForSequenceClassification, Config as XLMRobertaConfig,
+};
+use candle_transformers::models::debertav2::{
+    DebertaV2Model, DebertaV2ContextPooler, Config as DebertaV2Config,
+};
+use candle_transformers::models::modernbert::{
+    ModernBert, Config as ModernBertConfig,
+};
 use candle_core::{Device as CoreDevice, Tensor, IndexOp, DType};
 use candle_nn::{VarBuilder, Linear, Module, ops::sigmoid};
 use hf_hub::{api::sync::Api, Repo, RepoType};
@@ -7,12 +16,35 @@ use tokenizers::{EncodeInput, Tokenizer};
 use crate::ruby::{Device, Result};
 use crate::tokenizer::{TokenizerWrapper, loader::TokenizerLoader};
 
+enum RerankerModel {
+    Bert {
+        model: BertModel,
+        pooler: Linear,
+        classifier: Linear,
+    },
+    XLMRoberta {
+        model: XLMRobertaForSequenceClassification,
+        pad_token_id: u32,
+    },
+    DeBERTa {
+        model: DebertaV2Model,
+        pooler: DebertaV2ContextPooler,
+        classifier: Linear,
+        pad_token_id: u32,
+    },
+    ModernBert {
+        model: ModernBert,
+        head_dense: Linear,
+        head_norm: candle_nn::LayerNorm,
+        classifier: Linear,
+        pad_token_id: u32,
+    },
+}
+
 #[magnus::wrap(class = "Candle::Reranker", free_immediately, size)]
 pub struct Reranker {
-    model: BertModel,
+    model: RerankerModel,
     tokenizer: TokenizerWrapper,
-    pooler: Linear,
-    classifier: Linear,
     device: CoreDevice,
     model_id: String,
 }
@@ -28,7 +60,7 @@ impl Reranker {
         let ruby = Ruby::get().unwrap();
         let runtime_error = ruby.exception_runtime_error();
 
-        let result = (|| -> std::result::Result<(BertModel, TokenizerWrapper, Linear, Linear), Box<dyn std::error::Error + Send + Sync>> {
+        let result = (|| -> std::result::Result<(RerankerModel, TokenizerWrapper), Box<dyn std::error::Error + Send + Sync>> {
             let api = Api::new()?;
             let repo = api.repo(Repo::new(model_id.clone(), RepoType::Model));
 
@@ -37,9 +69,10 @@ impl Reranker {
             let tokenizer_filename = repo.get("tokenizer.json")?;
             let weights_filename = repo.get("model.safetensors")?;
 
-            // Load config
-            let config = std::fs::read_to_string(config_filename)?;
-            let config: Config = serde_json::from_str(&config)?;
+            // Read raw config to detect model type
+            let config_str = std::fs::read_to_string(&config_filename)?;
+            let raw_config: serde_json::Value = serde_json::from_str(&config_str)?;
+            let model_type = raw_config["model_type"].as_str().unwrap_or("bert");
 
             // Setup tokenizer with padding AND truncation
             let tokenizer = Tokenizer::from_file(tokenizer_filename)?;
@@ -51,21 +84,49 @@ impl Reranker {
                 VarBuilder::from_mmaped_safetensors(&[weights_filename], DType::F32, &device)?
             };
 
-            // Load BERT model
-            let model = BertModel::load(vb.pp("bert"), &config)?;
+            let model = match model_type {
+                "xlm-roberta" => {
+                    let config: XLMRobertaConfig = serde_json::from_str(&config_str)?;
+                    let pad_token_id = config.pad_token_id;
+                    let model = XLMRobertaForSequenceClassification::new(1, &config, vb)?;
+                    RerankerModel::XLMRoberta { model, pad_token_id }
+                }
+                "deberta-v2" => {
+                    let config: DebertaV2Config = serde_json::from_str(&config_str)?;
+                    let pad_token_id = config.pad_token_id.unwrap_or(0) as u32;
+                    let model = DebertaV2Model::load(vb.pp("deberta"), &config)?;
+                    let pooler = DebertaV2ContextPooler::load(vb.clone(), &config)?;
+                    let pooler_hidden_size = config.pooler_hidden_size.unwrap_or(config.hidden_size);
+                    let num_labels = config.id2label.as_ref().map_or(1, |m| m.len());
+                    let classifier = candle_nn::linear(pooler_hidden_size, num_labels, vb.pp("classifier"))?;
+                    RerankerModel::DeBERTa { model, pooler, classifier, pad_token_id }
+                }
+                "modernbert" => {
+                    let config: ModernBertConfig = serde_json::from_str(&config_str)?;
+                    let pad_token_id = config.pad_token_id;
+                    let model = ModernBert::load(vb.clone(), &config)?;
+                    // ModernBertHead::load is private, so load the head layers manually
+                    let head_vb = vb.pp("head");
+                    let head_dense = candle_nn::linear_no_bias(config.hidden_size, config.hidden_size, head_vb.pp("dense"))?;
+                    let head_norm = candle_nn::layer_norm_no_bias(config.hidden_size, config.layer_norm_eps, head_vb.pp("norm"))?;
+                    let classifier = candle_nn::linear(config.hidden_size, 1, vb.pp("classifier"))?;
+                    RerankerModel::ModernBert { model, head_dense, head_norm, classifier, pad_token_id }
+                }
+                _ => {
+                    let config: BertConfig = serde_json::from_str(&config_str)?;
+                    let model = BertModel::load(vb.pp("bert"), &config)?;
+                    let pooler = candle_nn::linear(config.hidden_size, config.hidden_size, vb.pp("bert.pooler.dense"))?;
+                    let classifier = candle_nn::linear(config.hidden_size, 1, vb.pp("classifier"))?;
+                    RerankerModel::Bert { model, pooler, classifier }
+                }
+            };
 
-            // Load pooler layer (dense + tanh activation)
-            let pooler = candle_nn::linear(config.hidden_size, config.hidden_size, vb.pp("bert.pooler.dense"))?;
-
-            // Load classifier layer for cross-encoder (single output score)
-            let classifier = candle_nn::linear(config.hidden_size, 1, vb.pp("classifier"))?;
-
-            Ok((model, TokenizerWrapper::new(tokenizer), pooler, classifier))
+            Ok((model, TokenizerWrapper::new(tokenizer)))
         })();
 
         match result {
-            Ok((model, tokenizer, pooler, classifier)) => {
-                Ok(Self { model, tokenizer, pooler, classifier, device, model_id })
+            Ok((model, tokenizer)) => {
+                Ok(Self { model, tokenizer, device, model_id })
             }
             Err(e) => Err(Error::new(runtime_error, format!("Failed to load model: {}", e))),
         }
@@ -164,48 +225,101 @@ impl Reranker {
             .map_err(|e| Error::new(runtime_error, format!("Failed to create tensor: {}", e)))?;
         let token_type_ids = Tensor::new(token_type_ids, &self.device)
             .map_err(|e| Error::new(runtime_error, format!("Failed to create token type ids tensor: {}", e)))?;
-        let attention_mask = token_ids.ne(0u32)
-            .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
 
-        // Forward pass through BERT
-        let embeddings = self.model.forward(&token_ids, &token_type_ids, Some(&attention_mask))
-            .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+        // Compute scores based on model type
+        let scores = match &self.model {
+            RerankerModel::Bert { model, pooler, classifier } => {
+                let attention_mask = token_ids.ne(0u32)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
 
-        // Apply pooling based on the specified method
-        let pooled_embeddings = match pooling_method.as_str() {
-            "pooler" => {
-                // Extract [CLS] token and apply pooler (dense + tanh)
-                let cls_embeddings = self.extract_cls_embeddings(&embeddings)?;
-                let pooled = self.pooler.forward(&cls_embeddings)
+                // Forward pass through BERT
+                let embeddings = model.forward(&token_ids, &token_type_ids, Some(&attention_mask))
+                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+
+                // Apply pooling based on the specified method
+                let pooled_embeddings = match pooling_method.as_str() {
+                    "pooler" => {
+                        let cls_embeddings = self.extract_cls_embeddings(&embeddings)?;
+                        let pooled = pooler.forward(&cls_embeddings)
+                            .map_err(|e| Error::new(runtime_error, format!("Pooler forward failed: {}", e)))?;
+                        pooled.tanh()
+                            .map_err(|e| Error::new(runtime_error, format!("Tanh activation failed: {}", e)))?
+                    },
+                    "cls" => {
+                        self.extract_cls_embeddings(&embeddings)?
+                    },
+                    "mean" => {
+                        let (_batch, seq_len, _hidden) = embeddings.dims3()
+                            .map_err(|e| Error::new(runtime_error, format!("Failed to get tensor dimensions: {}", e)))?;
+                        let sum = embeddings.sum(1)
+                            .map_err(|e| Error::new(runtime_error, format!("Failed to sum embeddings: {}", e)))?;
+                        (sum / (seq_len as f64))
+                            .map_err(|e| Error::new(runtime_error, format!("Failed to compute mean: {}", e)))?
+                    },
+                    _ => return Err(Error::new(runtime_error,
+                        format!("Unknown pooling method: {}. Use 'pooler', 'cls', or 'mean'", pooling_method)))
+                };
+
+                let pooled_embeddings = pooled_embeddings.contiguous()
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to make pooled_embeddings contiguous: {}", e)))?;
+                let logits = classifier.forward(&pooled_embeddings)
+                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                logits.squeeze(1)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+            RerankerModel::XLMRoberta { model, pad_token_id } => {
+                let attention_mask = token_ids.ne(*pad_token_id)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+
+                // XLMRobertaForSequenceClassification returns logits directly
+                let logits = model.forward(&token_ids, &attention_mask, &token_type_ids)
+                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                logits.squeeze(1)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+            RerankerModel::DeBERTa { model, pooler, classifier, pad_token_id } => {
+                let attention_mask = token_ids.ne(*pad_token_id)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+
+                // Forward through DeBERTa encoder
+                let encoder_output = model.forward(&token_ids, Some(token_type_ids.clone()), Some(attention_mask))
+                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+
+                // Pool and classify
+                let pooled = pooler.forward(&encoder_output)
                     .map_err(|e| Error::new(runtime_error, format!("Pooler forward failed: {}", e)))?;
-                pooled.tanh()
-                    .map_err(|e| Error::new(runtime_error, format!("Tanh activation failed: {}", e)))?
-            },
-            "cls" => {
-                // Just use the [CLS] token embeddings directly (no pooler layer)
-                self.extract_cls_embeddings(&embeddings)?
-            },
-            "mean" => {
-                // Mean pooling across all tokens
-                let (_batch, seq_len, _hidden) = embeddings.dims3()
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to get tensor dimensions: {}", e)))?;
-                let sum = embeddings.sum(1)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to sum embeddings: {}", e)))?;
-                (sum / (seq_len as f64))
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to compute mean: {}", e)))?
-            },
-            _ => return Err(Error::new(runtime_error,
-                format!("Unknown pooling method: {}. Use 'pooler', 'cls', or 'mean'", pooling_method)))
-        };
+                let logits = classifier.forward(&pooled)
+                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                logits.squeeze(1)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+            RerankerModel::ModernBert { model, head_dense, head_norm, classifier, pad_token_id } => {
+                let attention_mask = token_ids.ne(*pad_token_id)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+                let attention_mask_f32 = attention_mask.to_dtype(DType::F32)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to convert attention mask: {}", e)))?;
 
-        // Apply classifier to get relevance scores (raw logits)
-        // Ensure tensor is contiguous before linear layer
-        let pooled_embeddings = pooled_embeddings.contiguous()
-            .map_err(|e| Error::new(runtime_error, format!("Failed to make pooled_embeddings contiguous: {}", e)))?;
-        let logits = self.classifier.forward(&pooled_embeddings)
-            .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
-        let scores = logits.squeeze(1)
-            .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?;
+                // Forward through ModernBERT encoder
+                let encoder_output = model.forward(&token_ids, &attention_mask_f32)
+                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+
+                // CLS pooling, then head (dense + GELU + norm) + classifier
+                let cls = encoder_output.i((.., 0, ..))
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to extract CLS: {}", e)))?
+                    .contiguous()
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to make contiguous: {}", e)))?;
+                let hidden = head_dense.forward(&cls)
+                    .map_err(|e| Error::new(runtime_error, format!("Head dense failed: {}", e)))?;
+                let hidden = hidden.gelu_erf()
+                    .map_err(|e| Error::new(runtime_error, format!("GELU activation failed: {}", e)))?;
+                let hidden = head_norm.forward(&hidden)
+                    .map_err(|e| Error::new(runtime_error, format!("Head norm failed: {}", e)))?;
+                let logits = classifier.forward(&hidden)
+                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                logits.squeeze(1)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+        };
 
         // Optionally apply sigmoid activation
         let scores = if apply_sigmoid {

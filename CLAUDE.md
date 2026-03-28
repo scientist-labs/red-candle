@@ -112,13 +112,21 @@ graph TB
     
     subgraph "Reranker Module"
         R[Reranker]
+        RME[RerankerModel enum]
         RM[BertModel]
         RP[Pooler Linear]
         RC[Classifier Linear]
-        
-        R --> RM
-        R --> RP
-        R --> RC
+        RX[XLMRobertaForSequenceClassification]
+        RD[DebertaV2Model + ContextPooler]
+        RMB[ModernBert + Head]
+
+        R --> RME
+        RME --> RM
+        RME --> RX
+        RME --> RD
+        RME --> RMB
+        RM --> RP
+        RM --> RC
     end
     
     subgraph "Traits"
