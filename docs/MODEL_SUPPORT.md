@@ -102,6 +102,7 @@ model = Candle::EmbeddingModel.from_pretrained("sentence-transformers/all-MiniLM
 | XLM-RoBERTa | `xlm_roberta` | Built-in classification head via `XLMRobertaForSequenceClassification`. Pooling method ignored. |
 | DeBERTa v2/v3 | `debertav2` | Context pooler + classifier. Used by Mixedbread mxbai-rerank models (BEIR leaderboard leaders). |
 | ModernBERT | `modernbert` | CLS pooling + head + classifier. Best accuracy-per-parameter ratio. |
+| Qwen3 (decoder) | `qwen3` | Decoder-based yes/no scoring. Scores are P(yes) from logits. Top of MTEB multilingual leaderboard. |
 
 Model type is auto-detected from `config.json` `model_type` field.
 
@@ -116,6 +117,8 @@ Model type is auto-detected from `config.json` `model_type` field.
 | mxbai Rerank Base v1 | DeBERTa v3 | 184M | BEIR leader | `Candle::Reranker.from_pretrained("mixedbread-ai/mxbai-rerank-base-v1")` |
 | mxbai Rerank Large v1 | DeBERTa v3 | 435M | BEIR leader (large) | `Candle::Reranker.from_pretrained("mixedbread-ai/mxbai-rerank-large-v1")` |
 | GTE Reranker ModernBERT | ModernBERT | 149M | Best accuracy/size ratio | `Candle::Reranker.from_pretrained("Alibaba-NLP/gte-reranker-modernbert-base")` |
+| Qwen3 Reranker 0.6B | Qwen3 | 600M | MTEB multilingual leader | `Candle::Reranker.from_pretrained("Qwen/Qwen3-Reranker-0.6B")` |
+| Qwen3 Reranker 4B | Qwen3 | 4B | Higher quality | `Candle::Reranker.from_pretrained("Qwen/Qwen3-Reranker-4B")` |
 | MiniLM L-12 v2 | BERT | 33M | Lightweight | `Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-12-v2")` |
 | MiniLM L-6 v2 | BERT | 22M | Fastest | `Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-6-v2")` |
 
@@ -125,10 +128,7 @@ These architectures are available in `candle-transformers` and could be added:
 
 | Architecture | Models | Priority | Notes |
 |:-------------|:-------|:---------|:------|
-| DeBERTa v2/v3 | `mixedbread-ai/mxbai-rerank-base-v1`, `mixedbread-ai/mxbai-rerank-large-v1` | High | Current BEIR leaderboard leaders. `debertav2` module exists in candle. |
-| ModernBERT | `Alibaba-NLP/gte-reranker-modernbert-base` | High | 149M params matching 1.2B model accuracy. `modernbert` module exists in candle. |
-| Gemma2 (decoder) | `BAAI/bge-reranker-v2.5-gemma2-lightweight` | Medium | Decoder-based reranker, different inference pattern (prompt-based scoring). |
-| Qwen3 (decoder) | `Qwen/Qwen3-Reranker-0.6B` | Medium | Decoder-based reranker via LoRA. Top of MTEB multilingual leaderboard. |
+| Gemma2 (decoder) | `BAAI/bge-reranker-v2.5-gemma2-lightweight` | Medium | Decoder-based reranker, similar prompt-based scoring pattern to Qwen3. `gemma2` module exists in candle. |
 
 ---
 

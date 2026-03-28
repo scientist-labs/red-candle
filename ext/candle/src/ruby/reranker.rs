@@ -9,10 +9,14 @@ use candle_transformers::models::debertav2::{
 use candle_transformers::models::modernbert::{
     ModernBert, Config as ModernBertConfig,
 };
+use candle_transformers::models::qwen3::{
+    ModelForCausalLM as Qwen3Model, Config as Qwen3Config,
+};
 use candle_core::{Device as CoreDevice, Tensor, IndexOp, DType};
 use candle_nn::{VarBuilder, Linear, Module, ops::sigmoid};
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use tokenizers::{EncodeInput, Tokenizer};
+use std::cell::RefCell;
 use crate::ruby::{Device, Result};
 use crate::tokenizer::{TokenizerWrapper, loader::TokenizerLoader};
 
@@ -38,6 +42,11 @@ enum RerankerModel {
         head_norm: candle_nn::LayerNorm,
         classifier: Linear,
         pad_token_id: u32,
+    },
+    Qwen3 {
+        model: RefCell<Qwen3Model>,
+        yes_token_id: u32,
+        no_token_id: u32,
     },
 }
 
@@ -100,6 +109,28 @@ impl Reranker {
                     let num_labels = config.id2label.as_ref().map_or(1, |m| m.len());
                     let classifier = candle_nn::linear(pooler_hidden_size, num_labels, vb.pp("classifier"))?;
                     RerankerModel::DeBERTa { model, pooler, classifier, pad_token_id }
+                }
+                "qwen3" => {
+                    let config: Qwen3Config = serde_json::from_str(&config_str)?;
+                    let model = Qwen3Model::new(&config, vb)?;
+
+                    // Look up "yes" and "no" token IDs from the tokenizer
+                    let yes_token_id: u32 = tokenizer
+                        .encode("yes", false)
+                        .ok()
+                        .and_then(|enc| enc.get_ids().first().copied())
+                        .unwrap_or(9693);
+                    let no_token_id: u32 = tokenizer
+                        .encode("no", false)
+                        .ok()
+                        .and_then(|enc| enc.get_ids().first().copied())
+                        .unwrap_or(2152);
+
+                    RerankerModel::Qwen3 {
+                        model: RefCell::new(model),
+                        yes_token_id,
+                        no_token_id,
+                    }
                 }
                 "modernbert" => {
                     let config: ModernBertConfig = serde_json::from_str(&config_str)?;
@@ -318,6 +349,65 @@ impl Reranker {
                     .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
                 logits.squeeze(1)
                     .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+            }
+            RerankerModel::Qwen3 { model, yes_token_id, no_token_id } => {
+                // Qwen3 reranker: decoder-based yes/no scoring
+                // Process each document individually (causal LM, not batch encoder)
+                let mut scores_vec: Vec<f32> = Vec::with_capacity(documents.len());
+                let mut model = model.borrow_mut();
+
+                for doc in &documents {
+                    // Build the Qwen3 reranker prompt
+                    let prompt = format!(
+                        "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n<Instruct>: Given a web search query, retrieve relevant passages that answer the query\n<Query>: {}\n<Document>: {}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+                        query, doc
+                    );
+
+                    // Tokenize the prompt
+                    let encoding = self.tokenizer.inner().encode(prompt.as_str(), false)
+                        .map_err(|e| Error::new(runtime_error, format!("Tokenization failed: {}", e)))?;
+                    let input_ids: Vec<u32> = encoding.get_ids().to_vec();
+
+                    // Clear KV cache for each document
+                    model.clear_kv_cache();
+
+                    // Forward pass — get logits for the last token position
+                    let input_tensor = Tensor::new(&input_ids[..], &self.device)
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to create tensor: {}", e)))?
+                        .unsqueeze(0)
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to unsqueeze: {}", e)))?;
+
+                    let logits = model.forward(&input_tensor, 0)
+                        .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+
+                    // logits shape: [1, 1, vocab_size] → flatten to [vocab_size]
+                    let logits = logits.flatten_all()
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to flatten: {}", e)))?
+                        .to_dtype(DType::F32)
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to convert dtype: {}", e)))?;
+
+                    // Extract yes/no logits and compute score
+                    let yes_logit: f32 = logits.i(*yes_token_id as usize)
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to get yes logit: {}", e)))?
+                        .to_scalar()
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to convert yes logit: {}", e)))?;
+                    let no_logit: f32 = logits.i(*no_token_id as usize)
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to get no logit: {}", e)))?
+                        .to_scalar()
+                        .map_err(|e| Error::new(runtime_error, format!("Failed to convert no logit: {}", e)))?;
+
+                    // softmax over [yes, no] → P(yes)
+                    let max_logit = yes_logit.max(no_logit);
+                    let yes_exp = (yes_logit - max_logit).exp();
+                    let no_exp = (no_logit - max_logit).exp();
+                    let score = yes_exp / (yes_exp + no_exp);
+
+                    scores_vec.push(score);
+                }
+
+                // Build scores tensor for uniform handling below
+                Tensor::new(scores_vec.as_slice(), &self.device)
+                    .map_err(|e| Error::new(runtime_error, format!("Failed to create scores tensor: {}", e)))?
             }
         };
 

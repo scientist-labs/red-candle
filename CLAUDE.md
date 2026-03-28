@@ -125,6 +125,8 @@ graph TB
         RME --> RX
         RME --> RD
         RME --> RMB
+        RQ[Qwen3 ModelForCausalLM]
+        RME --> RQ
         RM --> RP
         RM --> RC
     end

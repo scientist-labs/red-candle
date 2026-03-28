@@ -153,6 +153,48 @@ RSpec.describe "Reranker (DeBERTa)" do
   end
 end
 
+RSpec.describe "Reranker (Qwen3)" do
+  let(:reranker) do
+    @qwen3_reranker ||= Candle::Reranker.from_pretrained("Qwen/Qwen3-Reranker-0.6B")
+  end
+
+  after(:all) do
+    @qwen3_reranker = nil
+    GC.start
+  end
+
+  describe "#rerank" do
+    it "reranks documents based on query relevance" do
+      query = "What is the capital of France?"
+      documents = [
+        "The capital of France is Paris.",
+        "Berlin is the capital of Germany.",
+        "The weather in London is rainy."
+      ]
+
+      ranked_documents = reranker.rerank(query, documents)
+
+      expect(ranked_documents.length).to eq(3)
+      expect(ranked_documents[0][:text]).to eq("The capital of France is Paris.")
+      expect(ranked_documents[0][:score]).to be > ranked_documents[1][:score]
+    end
+
+    it "produces scores between 0 and 1 (yes/no probability)" do
+      results = reranker.rerank("test query", ["relevant document", "irrelevant text"])
+      results.each do |res|
+        expect(res[:score]).to be >= 0.0
+        expect(res[:score]).to be <= 1.0
+      end
+    end
+  end
+
+  describe "model metadata" do
+    it "reports the correct model_id" do
+      expect(reranker.model_id).to eq("Qwen/Qwen3-Reranker-0.6B")
+    end
+  end
+end
+
 RSpec.describe "Reranker (ModernBERT)" do
   let(:reranker) do
     @modernbert_reranker ||= Candle::Reranker.from_pretrained("Alibaba-NLP/gte-reranker-modernbert-base")
