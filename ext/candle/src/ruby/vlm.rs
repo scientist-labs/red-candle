@@ -234,13 +234,24 @@ impl VLM {
             &[image_size],
         ).map_err(|e| Error::new(runtime_error, format!("Failed to prepare multimodal input: {}", e)))?;
 
+        // Reset KV cache for fresh generation
+        let llama_config = self.config.to_llama_config();
+        *cache = Cache::new(true, DType::F32, &llama_config, &self.device)
+            .map_err(|e| Error::new(runtime_error, format!("Failed to reset cache: {}", e)))?;
+
         // Generate tokens autoregressively
         let mut generated_tokens: Vec<u32> = Vec::new();
         let mut current_embeds = input_embeds;
+        let mut pos = 0usize;
 
-        for i in 0..max_length {
-            let logits = model.forward(&current_embeds, i, cache)
-                .map_err(|e| Error::new(runtime_error, format!("Forward pass failed at step {}: {}", i, e)))?;
+        for _i in 0..max_length {
+            let logits = model.forward(&current_embeds, pos, cache)
+                .map_err(|e| Error::new(runtime_error, format!("Forward pass failed at pos {}: {}", pos, e)))?;
+
+            // Advance position by the number of tokens we just processed
+            let step_len = current_embeds.dim(1)
+                .map_err(|e| Error::new(runtime_error, format!("Failed to get step len: {}", e)))?;
+            pos += step_len;
 
             // Get logits for last position
             let logits = logits.flatten_all()
