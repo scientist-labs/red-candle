@@ -258,7 +258,7 @@ puts "=" * 80
 puts "Reranker"
 puts "-" * 80
 
-reranker = test("load", passed, failed) do
+reranker = test("load (BERT)", passed, failed) do
   Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-12-v2", device: device)
 end
 
@@ -268,6 +268,30 @@ if reranker
   test("rerank (cls)", passed, failed) { reranker.rerank("What is Ruby?", docs, pooling_method: "cls") }
   test("rerank (mean)", passed, failed) { reranker.rerank("What is Ruby?", docs, pooling_method: "mean") }
   test("inspect", passed, failed) { reranker.inspect }
+
+  # Free model memory before loading the next one
+  reranker = nil
+  GC.start(full_mark: true, immediate_sweep: true)
+end
+
+bge_reranker = test("load (XLM-RoBERTa / BGE)", passed, failed) do
+  Candle::Reranker.from_pretrained("BAAI/bge-reranker-base", device: device)
+end
+
+if bge_reranker
+  docs = ["Ruby is a programming language", "Python is a snake", "Java is an island"]
+  test("rerank (bge)", passed, failed) do
+    results = bge_reranker.rerank("What is Ruby?", docs)
+    raise "wrong top result" unless results[0][:text].include?("Ruby")
+    results
+  end
+  test("model_id", passed, failed) { bge_reranker.model_id }
+  test("tokenizer access", passed, failed) { bge_reranker.tokenizer }
+  test("inspect", passed, failed) { bge_reranker.inspect }
+
+  # Free model memory
+  bge_reranker = nil
+  GC.start(full_mark: true, immediate_sweep: true)
 end
 
 # ============================================================
