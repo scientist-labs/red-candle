@@ -434,12 +434,26 @@ embedding = model.embedding("Hi there!")
 
 Red-Candle includes support for cross-encoder reranking models, which can be used to reorder documents by relevance to a query. This is particularly useful for improving search results or implementing retrieval-augmented generation (RAG) systems.
 
+### Supported Models
+
+Red-Candle supports both **BERT** and **XLM-RoBERTa** reranker architectures. The model type is auto-detected from `config.json`.
+
+| Model | Architecture | Params | Notes |
+|-------|-------------|--------|-------|
+| `BAAI/bge-reranker-base` | XLM-RoBERTa | 278M | Recommended — strong quality, multilingual |
+| `BAAI/bge-reranker-large` | XLM-RoBERTa | 560M | Best quality, higher resource usage |
+| `BAAI/bge-reranker-v2-m3` | XLM-RoBERTa | 278M | Multilingual, very strong |
+| `cross-encoder/ms-marco-MiniLM-L-12-v2` | BERT | 33M | Lightweight, English only |
+
 ### Basic Usage
 
 ```ruby
 require 'candle'
 
-# Initialize the reranker with a cross-encoder model
+# Initialize the reranker (BGE reranker recommended for quality)
+reranker = Candle::Reranker.from_pretrained("BAAI/bge-reranker-base")
+
+# Or use the lighter BERT-based model
 reranker = Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-12-v2")
 
 # Or with custom max_length for truncation (default is 512)
@@ -528,7 +542,7 @@ results = reranker.rerank_with_pooling(query, documents, "cls")
 results = reranker.rerank_sigmoid_with_pooling(query, documents, "cls")
 ```
 
-Note: The default "pooler" method is recommended as it matches how cross-encoder models are trained. Other pooling methods may produce different ranking results.
+Note: Pooling methods only apply to BERT-based models. XLM-RoBERTa models (e.g., BGE rerankers) have a built-in classification head and ignore the `pooling_method` parameter. For BERT models, the default "pooler" method is recommended as it matches how cross-encoder models are trained.
 
 ### CUDA Support
 
@@ -546,11 +560,11 @@ Cross-encoder reranking models differ from bi-encoder embedding models:
 - **Bi-encoders** (like the embedding models above) encode queries and documents separately into dense vectors
 - **Cross-encoders** process the query and document together, allowing for more nuanced relevance scoring
 
-The reranker uses a BERT-based architecture that:
-1. Concatenates the query and document with special tokens: `[CLS] query [SEP] document [SEP]`
-2. Processes them jointly through BERT layers
-3. Applies a pooler layer (dense + tanh) to the [CLS] token
-4. Uses a classifier layer to produce a single relevance score
+The reranker concatenates the query and document with special tokens and processes them jointly through transformer layers to produce a single relevance score.
+
+**BERT models** (e.g., MiniLM): Use a pooler layer (dense + tanh) on the [CLS] token, then a classifier layer. Pooling method is configurable (`pooler`, `cls`, `mean`).
+
+**XLM-RoBERTa models** (e.g., BGE rerankers): Use a built-in classification head that returns logits directly. The `pooling_method` parameter is ignored — the model handles its own pooling internally.
 
 This joint processing allows cross-encoders to capture subtle semantic relationships between queries and documents, making them more accurate for reranking tasks, though at the cost of higher computational requirements.
 

@@ -57,9 +57,64 @@ RSpec.describe "Reranker" do
     it "works with mean method" do
       # Test mean method (may give different results as it's not the intended pooling for this model)
       ranked_documents = reranker.rerank(query, documents, pooling_method: "mean")
-      
+
       expect(ranked_documents.length).to eq(2)
       # Just verify we get results, not their order, as mean pooling isn't optimal for cross-encoders
+    end
+  end
+end
+
+RSpec.describe "Reranker (XLM-RoBERTa)" do
+  let(:reranker) do
+    @xlm_reranker ||= Candle::Reranker.from_pretrained("BAAI/bge-reranker-base")
+  end
+
+  after(:all) do
+    @xlm_reranker = nil
+    GC.start
+  end
+
+  describe "#rerank" do
+    it "reranks documents based on query relevance" do
+      query = "What is the capital of France?"
+      documents = [
+        "The capital of France is Paris.",
+        "Berlin is the capital of Germany.",
+        "London is the capital of the United Kingdom."
+      ]
+
+      ranked_documents = reranker.rerank(query, documents)
+
+      expect(ranked_documents.length).to eq(3)
+      expect(ranked_documents[0][:text]).to eq("The capital of France is Paris.")
+      expect(ranked_documents[0][:doc_id]).to eq(0)
+      expect(ranked_documents[0][:score]).to be > ranked_documents[1][:score]
+      expect(ranked_documents[0][:score]).to be > ranked_documents[2][:score]
+    end
+
+    it "clearly separates relevant from irrelevant documents" do
+      query = "password security policy"
+      documents = [
+        "Our password policy requires 12 characters minimum with special characters",
+        "The cat sat on the mat and looked out the window",
+      ]
+
+      ranked_documents = reranker.rerank(query, documents)
+
+      expect(ranked_documents[0][:text]).to include("password")
+      # BGE reranker should show clear score separation
+      expect(ranked_documents[0][:score]).to be > ranked_documents[1][:score]
+    end
+  end
+
+  describe "model metadata" do
+    it "reports the correct model_id" do
+      expect(reranker.model_id).to eq("BAAI/bge-reranker-base")
+    end
+
+    it "exposes a tokenizer" do
+      tokenizer = reranker.tokenizer
+      expect(tokenizer).to be_a(Candle::Tokenizer)
     end
   end
 end
