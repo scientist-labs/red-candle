@@ -164,6 +164,31 @@ hybrid.add_gazetteer_recognizer("LANG", ["Ruby", "Python"])
 
 ---
 
+## Vision-Language Models (VLM)
+
+### Supported Architectures
+
+| Architecture | Module | Notes |
+|:-------------|:-------|:------|
+| LLaVA-Next | `llava` + `clip` + `llama` | CLIP vision encoder + MM projector + Llama LLM. Auto-regressive image-to-text generation. |
+
+### Known Working Models
+
+| Model | LLM Backend | Size | Initializer |
+|:------|:-----------|:-----|:------------|
+| LLaVA-Next Vicuna 7B | Llama (Vicuna) | 13GB | `Candle::VLM.from_pretrained("llava-hf/llava-v1.6-vicuna-7b-hf")` |
+
+### API
+
+```ruby
+vlm = Candle::VLM.from_pretrained("llava-hf/llava-v1.6-vicuna-7b-hf")
+vlm.describe("photo.jpg")                                    # describe image
+vlm.ask("photo.jpg", "What color is the car?")               # ask a question
+vlm.ask("photo.jpg", "Count the people", max_length: 50)     # limit output
+```
+
+---
+
 ## Tokenizers
 
 Standalone tokenizer access for any HuggingFace tokenizer:
