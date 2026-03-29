@@ -942,6 +942,49 @@ All NER methods return entities in a consistent format:
 }
 ```
 
+## Vision-Language Models (VLM)
+
+Red-Candle supports vision-language models for understanding and describing images. The VLM module uses LLaVA (Large Language and Vision Assistant), which combines a CLIP vision encoder with a Llama language model.
+
+### Basic Usage
+
+```ruby
+require 'candle'
+
+# Load a LLaVA model (requires ~13GB download on first use)
+vlm = Candle::VLM.from_pretrained("llava-hf/llava-v1.6-vicuna-7b-hf")
+
+# Describe an image
+description = vlm.describe("photo.jpg")
+
+# Ask a question about an image
+answer = vlm.ask("photo.jpg", "What animal is in this image?")
+# => "The animal in the image is a cat."
+
+# Control output length
+vlm.describe("photo.jpg", max_length: 500)
+vlm.ask("photo.jpg", "What colors do you see?", max_length: 50)
+```
+
+### How It Works
+
+1. **CLIP Vision Encoder**: Converts the image into a sequence of visual feature tokens (576 patches from a 336x336 image)
+2. **MM Projector**: Projects vision features into the language model's embedding space
+3. **Llama LLM**: Processes the combined image+text embeddings and generates a text response
+
+### Supported Models
+
+| Model | LLM Backend | Size | Notes |
+|:------|:-----------|:-----|:------|
+| `llava-hf/llava-v1.6-vicuna-7b-hf` | Llama (Vicuna) | 13GB | Recommended, LLaVA-Next with Llama backend |
+
+### Notes
+
+- First load downloads ~13GB of model weights (cached for subsequent use)
+- Image preprocessing is automatic (resize, normalize to CLIP format)
+- Generation uses greedy decoding
+- Multiple calls work correctly (KV cache is reset between queries)
+
 ## Common Runtime Errors
 
 ### Weight is negative, too large or not a valid number

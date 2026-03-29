@@ -399,6 +399,42 @@ test("HybridNER", passed, failed) do
 end
 
 # ============================================================
+# Vision-Language Model (VLM)
+# ============================================================
+puts
+puts "=" * 80
+puts "Vision-Language Model"
+puts "-" * 80
+
+vlm = test("load (LLaVA-Next Vicuna 7B)", passed, failed) do
+  Candle::VLM.from_pretrained("llava-hf/llava-v1.6-vicuna-7b-hf", device: device)
+end
+
+if vlm
+  test_image = File.join(__dir__, "test_cat.jpg")
+  if File.exist?(test_image)
+    test("ask", passed, failed) do
+      result = vlm.ask(test_image, "What animal is in this image?", max_length: 50)
+      raise "empty response" if result.strip.empty?
+      result
+    end
+    test("describe", passed, failed) do
+      result = vlm.describe(test_image, max_length: 50)
+      raise "empty response" if result.strip.empty?
+      result
+    end
+  else
+    puts "  Skipping image tests (examples/test_cat.jpg not found)"
+  end
+  test("model_id", passed, failed) { vlm.model_id }
+  test("tokenizer access", passed, failed) { vlm.tokenizer }
+  test("inspect", passed, failed) { vlm.inspect }
+
+  vlm = nil
+  GC.start(full_mark: true, immediate_sweep: true)
+end
+
+# ============================================================
 # Tokenizer
 # ============================================================
 puts

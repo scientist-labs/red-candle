@@ -10,6 +10,7 @@ pub mod tokenizer;
 pub mod structured;
 pub mod reranker;
 pub mod ner;
+pub mod vlm;
 
 pub use embedding_model::{EmbeddingModel, EmbeddingModelInner};
 pub use tensor::Tensor;
