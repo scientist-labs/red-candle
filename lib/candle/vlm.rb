@@ -16,6 +16,14 @@ module Candle
       end
     end
 
+    def describe(image_path, max_length: 256)
+      _describe(image_path, max_length)
+    end
+
+    def ask(image_path, question, max_length: 256)
+      _ask(image_path, question, max_length)
+    end
+
     def inspect
       "#<Candle::VLM model_id=#{model_id.inspect} device=#{device}>"
     end

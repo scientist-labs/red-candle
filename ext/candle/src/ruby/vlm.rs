@@ -321,8 +321,8 @@ pub fn init(rb_candle: RModule) -> std::result::Result<(), Error> {
     let ruby = Ruby::get().unwrap();
     let c_vlm = rb_candle.define_class("VLM", ruby.class_object())?;
     c_vlm.define_singleton_method("_create", function!(VLM::new, 2))?;
-    c_vlm.define_method("describe", method!(VLM::describe, 2))?;
-    c_vlm.define_method("ask", method!(VLM::ask, 3))?;
+    c_vlm.define_method("_describe", method!(VLM::describe, 2))?;
+    c_vlm.define_method("_ask", method!(VLM::ask, 3))?;
     c_vlm.define_method("model_id", method!(VLM::model_id, 0))?;
     c_vlm.define_method("device", method!(VLM::device, 0))?;
     c_vlm.define_method("tokenizer", method!(VLM::tokenizer, 0))?;
