@@ -18,6 +18,7 @@ use hf_hub::{api::sync::Api, Repo, RepoType};
 use tokenizers::{EncodeInput, Tokenizer};
 use std::cell::RefCell;
 use crate::ruby::{Device, Result};
+use crate::ruby::gvl;
 use crate::tokenizer::{TokenizerWrapper, loader::TokenizerLoader};
 
 enum RerankerModel {
@@ -164,39 +165,27 @@ impl Reranker {
     }
 
     /// Extract CLS embeddings from the model output, handling Metal device workarounds
-    fn extract_cls_embeddings(&self, embeddings: &Tensor) -> std::result::Result<Tensor, Error> {
-        let ruby = Ruby::get().unwrap();
-        let runtime_error = ruby.exception_runtime_error();
-
+    fn extract_cls_embeddings(&self, embeddings: &Tensor) -> std::result::Result<Tensor, String> {
         let cls_embeddings = if self.device.is_metal() {
-            // Metal has issues with tensor indexing, use a different approach
             let (batch_size, seq_len, hidden_size) = embeddings.dims3()
-                .map_err(|e| Error::new(runtime_error, format!("Failed to get dims: {}", e)))?;
-
-            // Reshape to [batch * seq_len, hidden] then take first hidden vectors for each batch
+                .map_err(|e| format!("Failed to get dims: {}", e))?;
             let reshaped = embeddings.reshape((batch_size * seq_len, hidden_size))
-                .map_err(|e| Error::new(runtime_error, format!("Failed to reshape: {}", e)))?;
-
-            // Extract CLS tokens (first token of each sequence)
+                .map_err(|e| format!("Failed to reshape: {}", e))?;
             let mut cls_vecs = Vec::new();
             for i in 0..batch_size {
                 let start_idx = i * seq_len;
                 let cls_vec = reshaped.narrow(0, start_idx, 1)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to extract CLS: {}", e)))?;
+                    .map_err(|e| format!("Failed to extract CLS: {}", e))?;
                 cls_vecs.push(cls_vec);
             }
-
-            // Stack the CLS vectors
             Tensor::cat(&cls_vecs, 0)
-                .map_err(|e| Error::new(runtime_error, format!("Failed to cat CLS tokens: {}", e)))?
+                .map_err(|e| format!("Failed to cat CLS tokens: {}", e))?
         } else {
             embeddings.i((.., 0))
-                .map_err(|e| Error::new(runtime_error, format!("Failed to extract CLS token: {}", e)))?
+                .map_err(|e| format!("Failed to extract CLS token: {}", e))?
         };
-
-        // Ensure tensor is contiguous for downstream operations
         cls_embeddings.contiguous()
-            .map_err(|e| Error::new(runtime_error, format!("Failed to make CLS embeddings contiguous: {}", e)))
+            .map_err(|e| format!("Failed to make CLS embeddings contiguous: {}", e))
     }
 
     pub fn debug_tokenization(&self, query: String, document: String) -> std::result::Result<RHash, Error> {
@@ -231,124 +220,147 @@ impl Reranker {
         let runtime_error = ruby.exception_runtime_error();
         let documents: Vec<String> = documents.to_vec()?;
 
+        // Release the GVL for the entire compute portion (tokenization + inference + scoring).
+        // None of this calls Ruby API.
+        let ranked_docs = gvl::without_gvl(|| -> std::result::Result<Vec<(String, f32, usize)>, String> {
+            self.compute_rerank(&query, &documents, &pooling_method, apply_sigmoid)
+        });
+
+        let ranked_docs = ranked_docs
+            .map_err(|e| Error::new(runtime_error, e))?;
+
+        // Build result array (requires GVL for Ruby object creation)
+        let result_array = ruby.ary_new();
+        for (doc, score, doc_id) in ranked_docs {
+            let tuple = ruby.ary_new();
+            tuple.push(doc)?;
+            tuple.push(ruby.float_from_f64(score as f64))?;
+            tuple.push(doc_id)?;
+            result_array.push(tuple)?;
+        }
+        Ok(result_array)
+    }
+
+    /// Pure compute portion of reranking — no Ruby API calls.
+    /// Returns ranked (document, score, original_index) tuples.
+    fn compute_rerank(&self, query: &str, documents: &[String], pooling_method: &str, apply_sigmoid: bool) -> std::result::Result<Vec<(String, f32, usize)>, String> {
         // Create query-document pairs for cross-encoder
         let query_and_docs: Vec<EncodeInput> = documents
             .iter()
-            .map(|d| (query.clone(), d.clone()).into())
+            .map(|d| (query.to_string(), d.clone()).into())
             .collect();
 
-        // Tokenize batch using inner tokenizer for access to token type IDs
+        // Tokenize batch
         let encodings = self.tokenizer.inner().encode_batch(query_and_docs, true)
-            .map_err(|e| Error::new(runtime_error, format!("Tokenization failed: {}", e)))?;
+            .map_err(|e| format!("Tokenization failed: {}", e))?;
 
-        // Convert to tensors
-        let token_ids = encodings
+        let token_ids_vec = encodings
             .iter()
             .map(|e| e.get_ids().to_vec())
             .collect::<Vec<_>>();
 
-        let token_type_ids = encodings
+        let token_type_ids_vec = encodings
             .iter()
             .map(|e| e.get_type_ids().to_vec())
             .collect::<Vec<_>>();
 
-        let token_ids = Tensor::new(token_ids, &self.device)
-            .map_err(|e| Error::new(runtime_error, format!("Failed to create tensor: {}", e)))?;
-        let token_type_ids = Tensor::new(token_type_ids, &self.device)
-            .map_err(|e| Error::new(runtime_error, format!("Failed to create token type ids tensor: {}", e)))?;
+        let token_ids = Tensor::new(token_ids_vec, &self.device)
+            .map_err(|e| format!("Failed to create tensor: {}", e))?;
+        let token_type_ids = Tensor::new(token_type_ids_vec, &self.device)
+            .map_err(|e| format!("Failed to create token type ids tensor: {}", e))?;
 
         // Compute scores based on model type
         let scores = match &self.model {
             RerankerModel::Bert { model, pooler, classifier } => {
                 let attention_mask = token_ids.ne(0u32)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+                    .map_err(|e| format!("Failed to create attention mask: {}", e))?;
 
                 // Forward pass through BERT
                 let embeddings = model.forward(&token_ids, &token_type_ids, Some(&attention_mask))
-                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                    .map_err(|e| format!("Model forward pass failed: {}", e))?;
 
                 // Apply pooling based on the specified method
-                let pooled_embeddings = match pooling_method.as_str() {
+                let pooled_embeddings = match pooling_method {
                     "pooler" => {
                         let cls_embeddings = self.extract_cls_embeddings(&embeddings)?;
                         let pooled = pooler.forward(&cls_embeddings)
-                            .map_err(|e| Error::new(runtime_error, format!("Pooler forward failed: {}", e)))?;
+                            .map_err(|e| format!("Pooler forward failed: {}", e))?;
                         pooled.tanh()
-                            .map_err(|e| Error::new(runtime_error, format!("Tanh activation failed: {}", e)))?
+                            .map_err(|e| format!("Tanh activation failed: {}", e))?
                     },
                     "cls" => {
                         self.extract_cls_embeddings(&embeddings)?
                     },
                     "mean" => {
                         let (_batch, seq_len, _hidden) = embeddings.dims3()
-                            .map_err(|e| Error::new(runtime_error, format!("Failed to get tensor dimensions: {}", e)))?;
+                            .map_err(|e| format!("Failed to get tensor dimensions: {}", e))?;
                         let sum = embeddings.sum(1)
-                            .map_err(|e| Error::new(runtime_error, format!("Failed to sum embeddings: {}", e)))?;
+                            .map_err(|e| format!("Failed to sum embeddings: {}", e))?;
                         (sum / (seq_len as f64))
-                            .map_err(|e| Error::new(runtime_error, format!("Failed to compute mean: {}", e)))?
+                            .map_err(|e| format!("Failed to compute mean: {}", e))?
                     },
-                    _ => return Err(Error::new(runtime_error,
-                        format!("Unknown pooling method: {}. Use 'pooler', 'cls', or 'mean'", pooling_method)))
+                    _ => return Err(
+                        format!("Unknown pooling method: {}. Use 'pooler', 'cls', or 'mean'", pooling_method))
                 };
 
                 let pooled_embeddings = pooled_embeddings.contiguous()
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to make pooled_embeddings contiguous: {}", e)))?;
+                    .map_err(|e| format!("Failed to make pooled_embeddings contiguous: {}", e))?;
                 let logits = classifier.forward(&pooled_embeddings)
-                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                    .map_err(|e| format!("Classifier forward failed: {}", e))?;
                 logits.squeeze(1)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+                    .map_err(|e| format!("Failed to squeeze tensor: {}", e))?
             }
             RerankerModel::XLMRoberta { model, pad_token_id } => {
                 let attention_mask = token_ids.ne(*pad_token_id)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+                    .map_err(|e| format!("Failed to create attention mask: {}", e))?;
 
                 // XLMRobertaForSequenceClassification returns logits directly
                 let logits = model.forward(&token_ids, &attention_mask, &token_type_ids)
-                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                    .map_err(|e| format!("Model forward pass failed: {}", e))?;
                 logits.squeeze(1)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+                    .map_err(|e| format!("Failed to squeeze tensor: {}", e))?
             }
             RerankerModel::DeBERTa { model, pooler, classifier, pad_token_id } => {
                 let attention_mask = token_ids.ne(*pad_token_id)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+                    .map_err(|e| format!("Failed to create attention mask: {}", e))?;
 
                 // Forward through DeBERTa encoder
                 let encoder_output = model.forward(&token_ids, Some(token_type_ids.clone()), Some(attention_mask))
-                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                    .map_err(|e| format!("Model forward pass failed: {}", e))?;
 
                 // Pool and classify
                 let pooled = pooler.forward(&encoder_output)
-                    .map_err(|e| Error::new(runtime_error, format!("Pooler forward failed: {}", e)))?;
+                    .map_err(|e| format!("Pooler forward failed: {}", e))?;
                 let logits = classifier.forward(&pooled)
-                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                    .map_err(|e| format!("Classifier forward failed: {}", e))?;
                 logits.squeeze(1)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+                    .map_err(|e| format!("Failed to squeeze tensor: {}", e))?
             }
             RerankerModel::ModernBert { model, head_dense, head_norm, classifier, pad_token_id } => {
                 let attention_mask = token_ids.ne(*pad_token_id)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to create attention mask: {}", e)))?;
+                    .map_err(|e| format!("Failed to create attention mask: {}", e))?;
                 let attention_mask_f32 = attention_mask.to_dtype(DType::F32)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to convert attention mask: {}", e)))?;
+                    .map_err(|e| format!("Failed to convert attention mask: {}", e))?;
 
                 // Forward through ModernBERT encoder
                 let encoder_output = model.forward(&token_ids, &attention_mask_f32)
-                    .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                    .map_err(|e| format!("Model forward pass failed: {}", e))?;
 
                 // CLS pooling, then head (dense + GELU + norm) + classifier
                 let cls = encoder_output.i((.., 0, ..))
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to extract CLS: {}", e)))?
+                    .map_err(|e| format!("Failed to extract CLS: {}", e))?
                     .contiguous()
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to make contiguous: {}", e)))?;
+                    .map_err(|e| format!("Failed to make contiguous: {}", e))?;
                 let hidden = head_dense.forward(&cls)
-                    .map_err(|e| Error::new(runtime_error, format!("Head dense failed: {}", e)))?;
+                    .map_err(|e| format!("Head dense failed: {}", e))?;
                 let hidden = hidden.gelu_erf()
-                    .map_err(|e| Error::new(runtime_error, format!("GELU activation failed: {}", e)))?;
+                    .map_err(|e| format!("GELU activation failed: {}", e))?;
                 let hidden = head_norm.forward(&hidden)
-                    .map_err(|e| Error::new(runtime_error, format!("Head norm failed: {}", e)))?;
+                    .map_err(|e| format!("Head norm failed: {}", e))?;
                 let logits = classifier.forward(&hidden)
-                    .map_err(|e| Error::new(runtime_error, format!("Classifier forward failed: {}", e)))?;
+                    .map_err(|e| format!("Classifier forward failed: {}", e))?;
                 logits.squeeze(1)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to squeeze tensor: {}", e)))?
+                    .map_err(|e| format!("Failed to squeeze tensor: {}", e))?
             }
             RerankerModel::Qwen3 { model, yes_token_id, no_token_id } => {
                 // Qwen3 reranker: decoder-based yes/no scoring
@@ -356,7 +368,7 @@ impl Reranker {
                 let mut scores_vec: Vec<f32> = Vec::with_capacity(documents.len());
                 let mut model = model.borrow_mut();
 
-                for doc in &documents {
+                for doc in documents.iter() {
                     // Build the Qwen3 reranker prompt
                     let prompt = format!(
                         "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n<Instruct>: Given a web search query, retrieve relevant passages that answer the query\n<Query>: {}\n<Document>: {}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
@@ -365,7 +377,7 @@ impl Reranker {
 
                     // Tokenize the prompt
                     let encoding = self.tokenizer.inner().encode(prompt.as_str(), false)
-                        .map_err(|e| Error::new(runtime_error, format!("Tokenization failed: {}", e)))?;
+                        .map_err(|e| format!("Tokenization failed: {}", e))?;
                     let input_ids: Vec<u32> = encoding.get_ids().to_vec();
 
                     // Clear KV cache for each document
@@ -373,28 +385,28 @@ impl Reranker {
 
                     // Forward pass — get logits for the last token position
                     let input_tensor = Tensor::new(&input_ids[..], &self.device)
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to create tensor: {}", e)))?
+                        .map_err(|e| format!("Failed to create tensor: {}", e))?
                         .unsqueeze(0)
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to unsqueeze: {}", e)))?;
+                        .map_err(|e| format!("Failed to unsqueeze: {}", e))?;
 
                     let logits = model.forward(&input_tensor, 0)
-                        .map_err(|e| Error::new(runtime_error, format!("Model forward pass failed: {}", e)))?;
+                        .map_err(|e| format!("Model forward pass failed: {}", e))?;
 
                     // logits shape: [1, 1, vocab_size] → flatten to [vocab_size]
                     let logits = logits.flatten_all()
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to flatten: {}", e)))?
+                        .map_err(|e| format!("Failed to flatten: {}", e))?
                         .to_dtype(DType::F32)
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to convert dtype: {}", e)))?;
+                        .map_err(|e| format!("Failed to convert dtype: {}", e))?;
 
                     // Extract yes/no logits and compute score
                     let yes_logit: f32 = logits.i(*yes_token_id as usize)
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to get yes logit: {}", e)))?
+                        .map_err(|e| format!("Failed to get yes logit: {}", e))?
                         .to_scalar()
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to convert yes logit: {}", e)))?;
+                        .map_err(|e| format!("Failed to convert yes logit: {}", e))?;
                     let no_logit: f32 = logits.i(*no_token_id as usize)
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to get no logit: {}", e)))?
+                        .map_err(|e| format!("Failed to get no logit: {}", e))?
                         .to_scalar()
-                        .map_err(|e| Error::new(runtime_error, format!("Failed to convert no logit: {}", e)))?;
+                        .map_err(|e| format!("Failed to convert no logit: {}", e))?;
 
                     // softmax over [yes, no] → P(yes)
                     let max_logit = yes_logit.max(no_logit);
@@ -407,24 +419,25 @@ impl Reranker {
 
                 // Build scores tensor for uniform handling below
                 Tensor::new(scores_vec.as_slice(), &self.device)
-                    .map_err(|e| Error::new(runtime_error, format!("Failed to create scores tensor: {}", e)))?
+                    .map_err(|e| format!("Failed to create scores tensor: {}", e))?
             }
         };
 
         // Optionally apply sigmoid activation
         let scores = if apply_sigmoid {
             sigmoid(&scores)
-                .map_err(|e| Error::new(runtime_error, format!("Sigmoid failed: {}", e)))?
+                .map_err(|e| format!("Sigmoid failed: {}", e))?
         } else {
             scores
         };
 
         let scores_vec: Vec<f32> = scores.to_vec1()
-            .map_err(|e| Error::new(runtime_error, format!("Failed to convert scores to vec: {}", e)))?;
+            .map_err(|e| format!("Failed to convert scores to vec: {}", e))?;
 
         // Create tuples with document, score, and original index
         let mut ranked_docs: Vec<(String, f32, usize)> = documents
-            .into_iter()
+            .iter()
+            .cloned()
             .zip(scores_vec)
             .enumerate()
             .map(|(idx, (doc, score))| (doc, score, idx))
@@ -433,16 +446,7 @@ impl Reranker {
         // Sort documents by relevance score (descending)
         ranked_docs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Build result array with [doc, score, doc_id]
-        let result_array = ruby.ary_new();
-        for (doc, score, doc_id) in ranked_docs {
-            let tuple = ruby.ary_new();
-            tuple.push(doc)?;
-            tuple.push(ruby.float_from_f64(score as f64))?;
-            tuple.push(doc_id)?;
-            result_array.push(tuple)?;
-        }
-        Ok(result_array)
+        Ok(ranked_docs)
     }
 
     /// Get the tokenizer used by this model

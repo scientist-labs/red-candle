@@ -9,6 +9,7 @@ pub mod llm;
 pub mod tokenizer;
 pub mod structured;
 pub mod reranker;
+pub mod gvl;
 pub mod ner;
 pub mod vlm;
 
