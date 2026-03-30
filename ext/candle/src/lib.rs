@@ -4,6 +4,7 @@ use crate::ruby::candle_utils;
 use crate::ruby::utils::ensure_hf_cache_dir;
 use crate::ruby::Result;
 
+pub mod gvl;
 pub mod llm;
 pub mod ruby;
 pub mod structured;
