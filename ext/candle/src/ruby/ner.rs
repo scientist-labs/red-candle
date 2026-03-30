@@ -173,8 +173,10 @@ impl NER {
         let ruby = Ruby::get().unwrap();
         let threshold = confidence_threshold.unwrap_or(0.9) as f32;
 
-        // Use common tokenization and prediction logic
-        let (encoding, probs_vec) = self.tokenize_and_predict(&text)?;
+        // Release GVL during tokenization + model forward pass
+        let (encoding, probs_vec) = crate::gvl::without_gvl(|| {
+            self.tokenize_and_predict(&text)
+        })?;
 
         let tokens = encoding.get_tokens();
         let offsets = encoding.get_offsets();
@@ -208,8 +210,10 @@ impl NER {
     /// Get token-level predictions with labels and confidence scores
     pub fn predict_tokens(&self, text: String) -> Result<RArray> {
         let ruby = Ruby::get().unwrap();
-        // Use common tokenization and prediction logic
-        let (encoding, probs_vec) = self.tokenize_and_predict(&text)?;
+        // Release GVL during tokenization + model forward pass
+        let (encoding, probs_vec) = crate::gvl::without_gvl(|| {
+            self.tokenize_and_predict(&text)
+        })?;
 
         let tokens = encoding.get_tokens();
 

@@ -104,14 +104,15 @@ impl EmbeddingModel {
     /// pooling_method: "pooled", "pooled_normalized", or "cls" (default: "pooled")
     pub fn embedding(&self, input: String, pooling_method: String) -> Result<Tensor> {
         let ruby = Ruby::get().unwrap();
-        match &self.0.model {
-            Some(model) => {
-                match &self.0.tokenizer {
-                    Some(tokenizer) => Ok(Tensor(self.compute_embedding(input, model, tokenizer, &pooling_method)?)),
-                    None => Err(magnus::Error::new(ruby.exception_runtime_error(), "Tokenizer not found"))
-                }
+        match (&self.0.model, &self.0.tokenizer) {
+            (Some(model), Some(tokenizer)) => {
+                let result = crate::gvl::without_gvl(|| {
+                    self.compute_embedding(input, model, tokenizer, &pooling_method)
+                });
+                Ok(Tensor(result?))
             }
-            None => Err(magnus::Error::new(ruby.exception_runtime_error(), "Model not found"))
+            (None, _) => Err(magnus::Error::new(ruby.exception_runtime_error(), "Model not found")),
+            (_, None) => Err(magnus::Error::new(ruby.exception_runtime_error(), "Tokenizer not found")),
         }
     }
 
@@ -119,14 +120,15 @@ impl EmbeddingModel {
     /// &RETURNS&: Tensor
     pub fn embeddings(&self, input: String) -> Result<Tensor> {
         let ruby = Ruby::get().unwrap();
-        match &self.0.model {
-            Some(model) => {
-                match &self.0.tokenizer {
-                    Some(tokenizer) => Ok(Tensor(self.compute_embeddings(input, model, tokenizer)?)),
-                    None => Err(magnus::Error::new(ruby.exception_runtime_error(), "Tokenizer not found"))
-                }
+        match (&self.0.model, &self.0.tokenizer) {
+            (Some(model), Some(tokenizer)) => {
+                let result = crate::gvl::without_gvl(|| {
+                    self.compute_embeddings(input, model, tokenizer)
+                });
+                Ok(Tensor(result?))
             }
-            None => Err(magnus::Error::new(ruby.exception_runtime_error(), "Model not found"))
+            (None, _) => Err(magnus::Error::new(ruby.exception_runtime_error(), "Model not found")),
+            (_, None) => Err(magnus::Error::new(ruby.exception_runtime_error(), "Tokenizer not found")),
         }
     }
 

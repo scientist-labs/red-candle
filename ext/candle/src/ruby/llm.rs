@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::llm::{GenerationConfig as RustGenerationConfig, TextGenerator, mistral::Mistral as RustMistral, llama::Llama as RustLlama, gemma::Gemma as RustGemma, qwen::Qwen as RustQwen, qwen3::Qwen3 as RustQwen3, phi::Phi as RustPhi, granite::Granite as RustGranite, granitemoehybrid::GraniteMoeHybrid as RustGraniteMoeHybrid, glm4::Glm4 as RustGlm4, QuantizedGGUF as RustQuantizedGGUF};
 use crate::ruby::{Result, Device};
 use crate::ruby::structured::StructuredConstraint;
-use crate::ruby::gvl;
+use crate::gvl;
 
 // Use an enum to handle different model types instead of trait objects
 enum ModelType {

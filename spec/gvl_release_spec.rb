@@ -49,6 +49,50 @@ RSpec.describe "GVL release during inference" do
   end
 end
 
+RSpec.describe "GVL release during embedding" do
+  let(:model) do
+    @emb_model ||= Candle::EmbeddingModel.from_pretrained(
+      "jinaai/jina-embeddings-v2-base-en",
+      device: "cpu"
+    )
+  end
+
+  after(:all) do
+    @emb_model = nil
+    GC.start
+  end
+
+  it "still returns correct embeddings from a thread" do
+    result = Thread.new { model.embedding("Hello world") }.value
+    expect(result).to be_a(Candle::Tensor)
+    expect(result.values.length).to be > 0
+  end
+end
+
+RSpec.describe "GVL release during NER" do
+  let(:ner) do
+    @ner_model ||= Candle::NER.from_pretrained(
+      "dslim/bert-base-NER",
+      device: "cpu",
+      tokenizer: "bert-base-cased"
+    )
+  end
+
+  after(:all) do
+    @ner_model = nil
+    GC.start
+  end
+
+  it "still returns correct entities from a thread" do
+    result = Thread.new {
+      ner.extract_entities("Steve Jobs founded Apple in California.")
+    }.value
+    expect(result).to be_an(Array)
+    expect(result.length).to be > 0
+    expect(result.first[:label]).to be_a(String)
+  end
+end
+
 RSpec.describe "GVL release during reranking" do
   let(:reranker) do
     @reranker ||= Candle::Reranker.from_pretrained(

@@ -18,7 +18,7 @@ use hf_hub::{api::sync::Api, Repo, RepoType};
 use tokenizers::{EncodeInput, Tokenizer};
 use std::cell::RefCell;
 use crate::ruby::{Device, Result};
-use crate::ruby::gvl;
+use crate::gvl;
 use crate::tokenizer::{TokenizerWrapper, loader::TokenizerLoader};
 
 enum RerankerModel {
