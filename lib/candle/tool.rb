@@ -27,21 +27,20 @@ module Candle
     end
   end
 
-  ToolCall = Struct.new(:name, :arguments, keyword_init: true)
-
-  ToolCallResult = Struct.new(
-    :tool_calls,
-    :tool_results,
-    :text_response,
-    :raw_response,
-    keyword_init: true
-  ) do
-    def has_tool_calls?
-      tool_calls && !tool_calls.empty?
+  # A tool call requested by the model.
+  #
+  # name and arguments describe what the model wants to invoke. When chat is
+  # called with execute: true, result holds the tool's return value (or error
+  # holds the failure message) after Red Candle runs the tool.
+  ToolCall = Struct.new(:name, :arguments, :result, :error, keyword_init: true) do
+    # True once the tool has been run (successfully or not).
+    def executed?
+      !result.nil? || !error.nil?
     end
 
+    # True when the tool ran without raising.
     def success?
-      tool_results.all? { |r| r[:error].nil? }
+      executed? && error.nil?
     end
   end
 end

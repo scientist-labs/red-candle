@@ -54,9 +54,10 @@ RSpec.shared_examples "llama architecture model" do |model_name|
       
       config = Candle::GenerationConfig.new(max_length: 30, temperature: 0.7)
       response = @llm.chat(messages, config: config)
-      
-      expect(response).to be_a(String)
-      expect(response).not_to be_empty
+
+      expect(response).to be_a(Candle::ChatResponse)
+      expect(response.content).to be_a(String)
+      expect(response.content).not_to be_empty
     end
     
     it "applies chat template correctly" do
