@@ -1,5 +1,11 @@
 name: build
 on: pull_request
+
+# The build job only checks out code, restores/saves caches, and runs tests.
+# Grant the GITHUB_TOKEN least privilege.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
