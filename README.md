@@ -14,6 +14,12 @@ Run state-of-the-art **language models directly from Ruby**. No Python, no APIs,
 gem install red-candle
 ```
 
+> **Precompiled binaries:** on Linux and Windows, `gem install` pulls a precompiled
+> binary — no Rust toolchain needed. macOS (with Metal) and CUDA users build from the
+> source gem, which auto-detects the local toolchain. See
+> [docs/PRECOMPILED_GEMS.md](docs/PRECOMPILED_GEMS.md) for details and how to force a
+> source build.
+
 ```ruby
 require 'candle'
 
