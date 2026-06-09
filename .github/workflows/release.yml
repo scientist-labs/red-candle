@@ -29,6 +29,11 @@ env:
   # cross-compile toolchain (rake-compiler-dock) ships a 4.0 cross-ruby.
   RUBY_CC_VERSIONS: "3.1,3.2,3.3,3.4"
 
+# Least-privilege default for GITHUB_TOKEN; the prepare/publish jobs override
+# this with contents: write where they need to commit, tag, and release.
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1. Bump the version + tag (skipped on dry runs). Downstream jobs build from
