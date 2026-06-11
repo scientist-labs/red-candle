@@ -1,23 +1,31 @@
 # frozen_string_literal: true
 
 require "bundler/gem_tasks"
-require "rake/extensiontask"
+require "rb_sys/extensiontask"
 require "rspec/core/rake_task"
 
 task default: :spec
 
 spec = Bundler.load_gemspec("candle.gemspec")
-Rake::ExtensionTask.new("candle", spec) do |c|
+
+# RbSys::ExtensionTask (a rake-compiler ExtensionTask subclass) wires up the
+# `compile`, `native`, and `native:<platform>` gem tasks used both for local
+# builds and for cross-compilation in CI via rake-compiler-dock /
+# oxidized-rb/cross-gem-action. See docs/PRECOMPILED_GEMS.md.
+#
+# Acceleration note: the precompiled platform gems below are CPU-only. The
+# cross-compile containers have no CUDA and aren't macOS, so extconf.rb
+# auto-detects a CPU build. macOS (Metal) and CUDA users install the source
+# gem, whose extconf auto-detects their local toolchain. Metal specifically
+# cannot be cross-compiled here because candle compiles Metal shaders with
+# `xcrun metal`, which requires a real macOS runner (tracked as Phase 2).
+RbSys::ExtensionTask.new("candle", spec) do |c|
   c.lib_dir = "lib/candle"
   c.cross_compile = true
   c.cross_platform = %w[
     aarch64-linux
-    arm64-darwin
     x64-mingw-ucrt
-    x64-mingw32
-    x86_64-darwin
     x86_64-linux
-    x86_64-linux-musl
   ]
 end
 

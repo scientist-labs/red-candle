@@ -1,36 +1,58 @@
 name: Release
 
+# Builds precompiled (native) platform gems for Linux + Windows alongside the
+# portable source gem, then publishes them all to RubyGems.
+#
+# Tiers (see docs/PRECOMPILED_GEMS.md):
+#   - x86_64-linux, aarch64-linux, x64-mingw-ucrt -> precompiled, CPU-only
+#   - everything else (notably macOS/Metal and CUDA) -> source gem fallback,
+#     which auto-detects the local toolchain at install time.
+#
+# Set dry_run: true to build + smoke-test the whole matrix and upload the gems
+# as run artifacts WITHOUT bumping the version, tagging, or pushing to RubyGems.
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 1.7.0)"
+        description: "Version to release (e.g. 2.0.0)"
         required: true
         type: string
+      dry_run:
+        description: "Build + smoke-test only; do not bump/tag/publish"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Ruby ABIs to pack into each precompiled gem. 4.0 is omitted until the
+  # cross-compile toolchain (rake-compiler-dock) ships a 4.0 cross-ruby.
+  RUBY_CC_VERSIONS: "3.1,3.2,3.3,3.4"
+
+# Least-privilege default for GITHUB_TOKEN; the prepare/publish jobs override
+# this with contents: write where they need to commit, tag, and release.
+permissions:
+  contents: read
 
 jobs:
-  release:
+  # ---------------------------------------------------------------------------
+  # 1. Bump the version + tag (skipped on dry runs). Downstream jobs build from
+  #    the resulting ref so the gems carry the right version.
+  # ---------------------------------------------------------------------------
+  prepare:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "4.0"
-          bundler-cache: true
-
-      - name: Update version
+      - name: Bump version, commit and tag
+        if: ${{ !inputs.dry_run }}
         run: |
           VERSION="${{ inputs.version }}"
           sed -i "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" lib/candle/version.rb
-          echo "Updated version to $VERSION"
-          cat lib/candle/version.rb
-
-      - name: Commit and tag
-        run: |
-          VERSION="${{ inputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add lib/candle/version.rb
@@ -38,16 +60,150 @@ jobs:
           git tag "$VERSION"
           git push origin HEAD:${{ github.ref_name }} --tags
 
-      - name: Build gem
-        run: gem build candle.gemspec
+      - name: Resolve build ref
+        id: resolve
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Push to RubyGems
+  # ---------------------------------------------------------------------------
+  # 2. Precompiled platform gems (CPU). Built in rake-compiler-dock containers
+  #    via cross-gem-action, which packs one native extension per Ruby ABI.
+  #    The containers have no CUDA and aren't macOS, so extconf.rb auto-detects
+  #    a CPU build; CANDLE_FORCE_CPU makes that explicit/deterministic.
+  # ---------------------------------------------------------------------------
+  cross-gems:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - x86_64-linux
+          - aarch64-linux
+          - x64-mingw-ucrt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - uses: oxidized-rb/cross-gem-action@v9
+        with:
+          platform: ${{ matrix.platform }}
+          ruby-versions: ${{ env.RUBY_CC_VERSIONS }}
+        env:
+          CANDLE_FORCE_CPU: "1"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gem-${{ matrix.platform }}
+          path: pkg/*-${{ matrix.platform }}.gem
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3. Portable source gem — the fallback for macOS/Metal, CUDA, and any
+  #    platform without a precompiled binary. Requires the Rust toolchain at
+  #    install time (which Metal/CUDA users already have locally).
+  # ---------------------------------------------------------------------------
+  source-gem:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Build source gem
+        run: gem build candle.gemspec -o pkg/red-candle-source.gem
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gem-source
+          path: pkg/red-candle-source.gem
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 4. Clean-room smoke test: install each precompiled gem on a stock runner
+  #    with NO Rust toolchain and require the library. This is the real proof
+  #    that the binary needs no compiler. (aarch64-linux needs qemu and is not
+  #    smoke-tested here; it is covered by the build succeeding.)
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    needs: cross-gems
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86_64-linux
+            os: ubuntu-latest
+          - platform: x64-mingw-ucrt
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: gem-${{ matrix.platform }}
+          path: dist
+
+      - name: Install precompiled gem (no Rust toolchain present)
+        shell: bash
+        run: gem install --local dist/*-${{ matrix.platform }}.gem
+
+      - name: Require the library
+        shell: bash
+        run: |
+          ruby -e "require 'candle'; \
+            t = Candle::Tensor.new([1,2,3], :f32); \
+            raise 'bad shape' unless t.shape == [3]; \
+            puts \"red-candle loaded from a precompiled gem on #{RUBY_PLATFORM}\""
+
+  # ---------------------------------------------------------------------------
+  # 5. Publish everything to RubyGems + a GitHub release (skipped on dry runs).
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: [prepare, cross-gems, source-gem, smoke-test]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Download all gem artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gem-*
+          path: dist
+          merge-multiple: true
+
+      - name: Push all gems to RubyGems
         run: |
           mkdir -p ~/.gem
           echo "---" > ~/.gem/credentials
           echo ":rubygems_api_key: ${{ secrets.RUBYGEMS_API_KEY }}" >> ~/.gem/credentials
           chmod 0600 ~/.gem/credentials
-          gem push red-candle-*.gem
+          for gem in dist/*.gem; do
+            echo "Pushing $gem"
+            gem push "$gem"
+          done
 
       - name: Create GitHub Release
         env:
@@ -57,4 +213,4 @@ jobs:
           gh release create "$VERSION" \
             --title "v$VERSION" \
             --generate-notes \
-            red-candle-*.gem
+            dist/*.gem
