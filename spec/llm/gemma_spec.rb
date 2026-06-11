@@ -96,8 +96,9 @@ RSpec.describe "Gemma LLM" do
       
       config = Candle::GenerationConfig.new(max_length: 50)
       response = @llm.chat(messages, config: config)
-      expect(response).to be_a(String)
-      expect(response).not_to be_empty
+      expect(response).to be_a(Candle::ChatResponse)
+      expect(response.content).to be_a(String)
+      expect(response.content).not_to be_empty
     end
     
     it "applies Gemma chat template" do

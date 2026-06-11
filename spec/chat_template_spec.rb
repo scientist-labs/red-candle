@@ -89,7 +89,9 @@ RSpec.describe "Chat Template BOS Handling" do
     it "generates coherent text via chat" do
       skip "Model not loaded" unless @llm
       config = Candle::GenerationConfig.deterministic(max_length: 30)
-      result = @llm.chat(messages_with_system, config: config)
+      response = @llm.chat(messages_with_system, config: config)
+      expect(response).to be_a(Candle::ChatResponse)
+      result = response.content
 
       # Should not contain template artifacts in the output
       expect(result).not_to include("<<SYS>>")

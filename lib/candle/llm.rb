@@ -251,58 +251,101 @@ module Candle
       base_model = model_id.gsub(/-gguf|-q\d+_\w+$/i, "")
       base_model
     end
-    
-    # Chat interface — always returns a String
-    def chat(messages, **options)
-      prompt = apply_chat_template(messages)
-      generate(prompt, **options)
+
+    # Models whose chat output wraps reasoning in a tagged block, mapped to the
+    # [open_tag, close_tag] pair they use. Evaluated in order; first match wins.
+    THINKING_REGISTRY = [
+      [/qwen-?3/i,        ["<think>", "</think>"]],
+      [/qwq/i,            ["<think>", "</think>"]],
+      [/deepseek.*r1/i,   ["<think>", "</think>"]],
+      [/deepseek-?r1/i,   ["<think>", "</think>"]],
+    ]
+
+    # Register a model pattern that emits thinking blocks with the given tags.
+    def self.register_thinking_tags(model_pattern, open_tag, close_tag)
+      raise ArgumentError, "model_pattern must be a Regexp" unless model_pattern.is_a?(Regexp)
+      THINKING_REGISTRY.unshift([model_pattern, [open_tag, close_tag]])
     end
 
-    # Streaming chat interface
-    def chat_stream(messages, **options, &block)
-      prompt = apply_chat_template(messages)
-      generate_stream(prompt, **options, &block)
-    end
-
-    # Chat with tool calling — always returns a ToolCallResult
-    # Set execute: true to automatically run the tools (default: false)
-    def chat_with_tools(messages, tools:, execute: false, **options)
-      tool_prompt = build_tool_system_prompt(tools)
-      augmented = inject_tool_instructions(messages, tool_prompt)
-
-      raw_response = chat(augmented, **options)
-
-      result = ToolCallParser.parse(raw_response, available_tools: tools)
-
-      if result.has_tool_calls? && execute
-        tool_results = result.tool_calls.map do |tool_call|
-          tool = tools.find { |t| t.name == tool_call.name }
-          unless tool
-            next { tool_call: tool_call, result: nil, error: "Unknown tool: #{tool_call.name}" }
-          end
-
-          begin
-            output = tool.call(tool_call.arguments)
-            { tool_call: tool_call, result: output, error: nil }
-          rescue Exception => e
-            { tool_call: tool_call, result: nil, error: e.message }
-          end
-        end
-
-        ToolCallResult.new(
-          tool_calls: result.tool_calls,
-          tool_results: tool_results,
-          text_response: result.text_response,
-          raw_response: raw_response
-        )
-      else
-        ToolCallResult.new(
-          tool_calls: result.tool_calls,
-          tool_results: [],
-          text_response: result.has_tool_calls? ? result.text_response : raw_response,
-          raw_response: raw_response
-        )
+    # Infer the thinking tags for a model id, or nil if it does not emit them.
+    def self.guess_thinking_tags(model_id)
+      return nil if model_id.nil?
+      THINKING_REGISTRY.each do |pattern, tags|
+        return tags if model_id.match?(pattern)
       end
+      nil
+    end
+
+    # Chat interface — always returns a String
+    # Conversational interface. Always returns a ChatResponse, whether the
+    # model produced plain text, reasoning, or tool calls.
+    #
+    #   llm.chat(messages)                          # => ChatResponse (content/thinking)
+    #   llm.chat(messages, tools: my_tools)         # => ChatResponse (content/tool_calls)
+    #   llm.chat(messages, tools: my_tools, execute: true)  # also runs the tools
+    #
+    # Options:
+    #   tools:    Array of Candle::Tool the model may call (default: none)
+    #   execute:  when true, run requested tools and attach result/error to each ToolCall
+    #   thinking: override reasoning extraction — false to disable, a [open, close]
+    #             tag pair, a Regexp, or a ThinkingParser (default: model's parser)
+    def chat(messages, tools: nil, execute: false, thinking: nil, **options)
+      messages = inject_tools(messages, tools)
+      prompt = apply_chat_template(messages)
+      raw_response = generate(prompt, **options)
+      ChatResponse.from_raw(
+        raw_response,
+        thinking_parser: resolve_thinking_parser(thinking),
+        tools: tools,
+        execute: execute
+      )
+    end
+
+    # Streaming conversational interface. Yields typed Candle::StreamEvent
+    # objects (:thinking, :content, :tool_call, :done) as generation proceeds.
+    #
+    #   llm.chat_stream(messages) do |event|
+    #     print event.delta if event.content?
+    #   end
+    #
+    # Accepts the same tools:/thinking: options as #chat.
+    def chat_stream(messages, tools: nil, thinking: nil, **options, &block)
+      messages = inject_tools(messages, tools)
+      prompt = apply_chat_template(messages)
+
+      processor = StreamProcessor.new(
+        thinking_parser: resolve_thinking_parser(thinking),
+        tools: tools,
+        &block
+      )
+      generate_stream(prompt, **options) { |token| processor.process(token) }
+      processor.finish
+    end
+
+    # The ThinkingParser used to extract reasoning from this model's output.
+    # Defaults to a parser inferred from the model id (nil-pattern for models
+    # that don't emit thinking blocks).
+    def thinking_parser
+      return @thinking_parser if defined?(@thinking_parser)
+
+      id = begin
+        model_name
+      rescue StandardError
+        nil
+      end
+      tags = self.class.guess_thinking_tags(id)
+      @thinking_parser = if tags
+        ThinkingParser.new(open_tag: tags[0], close_tag: tags[1])
+      else
+        ThinkingParser.new(open_tag: nil, close_tag: nil)
+      end
+    end
+
+    # Override how reasoning is extracted for this model. Accepts a
+    # ThinkingParser, a [open_tag, close_tag] Array, a Regexp, or nil/false to
+    # disable thinking extraction entirely.
+    def thinking_parser=(spec)
+      @thinking_parser = ThinkingParser.coerce(spec)
     end
 
     # Inspect method for debugging and exploration
@@ -414,6 +457,23 @@ module Candle
         msgs.unshift({ role: "system", content: tool_prompt })
       end
       msgs
+    end
+
+    # Prepend tool instructions to the conversation when tools are provided.
+    def inject_tools(messages, tools)
+      return messages if tools.nil? || tools.empty?
+      inject_tool_instructions(messages, build_tool_system_prompt(tools))
+    end
+
+    # Resolve the per-call thinking option into a parser (or nil to disable).
+    # nil/true mean "use this model's default parser"; everything else is
+    # coerced by ThinkingParser.coerce.
+    def resolve_thinking_parser(thinking)
+      case thinking
+      when nil, true then thinking_parser
+      when false then nil
+      else ThinkingParser.coerce(thinking)
+      end
     end
 
     # Extract JSON content from generated text, handling stop tokens and extra content

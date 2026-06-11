@@ -67,8 +67,8 @@ messages.each do |msg|
 end
 
 print "\nAssistant: "
-llm.chat_stream(messages, config: Candle::GenerationConfig.balanced(max_length: 200)) do |token|
-  print token
+llm.chat_stream(messages, config: Candle::GenerationConfig.balanced(max_length: 200)) do |event|
+  print event.delta if event.content?
   $stdout.flush
 end
 puts "\n"

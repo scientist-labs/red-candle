@@ -60,42 +60,22 @@ RSpec.describe Candle::ToolCall do
     expect(tc.name).to eq("get_weather")
     expect(tc.arguments).to eq({ "city" => "Paris" })
   end
-end
 
-RSpec.describe Candle::ToolCallResult do
-  it "reports has_tool_calls? correctly" do
-    with_calls = Candle::ToolCallResult.new(
-      tool_calls: [Candle::ToolCall.new(name: "x", arguments: {})],
-      tool_results: [],
-      text_response: nil,
-      raw_response: ""
-    )
-    expect(with_calls.has_tool_calls?).to be true
-
-    without_calls = Candle::ToolCallResult.new(
-      tool_calls: [],
-      tool_results: [],
-      text_response: "hello",
-      raw_response: "hello"
-    )
-    expect(without_calls.has_tool_calls?).to be false
+  it "is not executed before a result or error is attached" do
+    tc = Candle::ToolCall.new(name: "x", arguments: {})
+    expect(tc.executed?).to be false
+    expect(tc.success?).to be false
   end
 
-  it "reports success? correctly" do
-    successful = Candle::ToolCallResult.new(
-      tool_calls: [],
-      tool_results: [{ tool_call: nil, result: "ok", error: nil }],
-      text_response: nil,
-      raw_response: ""
-    )
-    expect(successful.success?).to be true
+  it "reports success once a result is attached" do
+    tc = Candle::ToolCall.new(name: "x", arguments: {}, result: { ok: true })
+    expect(tc.executed?).to be true
+    expect(tc.success?).to be true
+  end
 
-    failed = Candle::ToolCallResult.new(
-      tool_calls: [],
-      tool_results: [{ tool_call: nil, result: nil, error: "boom" }],
-      text_response: nil,
-      raw_response: ""
-    )
-    expect(failed.success?).to be false
+  it "reports failure once an error is attached" do
+    tc = Candle::ToolCall.new(name: "x", arguments: {}, error: "boom")
+    expect(tc.executed?).to be true
+    expect(tc.success?).to be false
   end
 end

@@ -23,10 +23,10 @@ config = Candle::GenerationConfig.deterministic(max_length: 500)
 # --- Default: parse tool calls without executing ---
 puts "=== Tool Calling (parse only) ==="
 messages = [{ role: "user", content: "What's the weather in San Francisco?" }]
-result = llm.chat_with_tools(messages, tools: [get_weather], config: config)
+response = llm.chat(messages, tools: [get_weather], config: config)
 
-if result.has_tool_calls?
-  result.tool_calls.each do |tc|
+if response.tool_calls?
+  response.tool_calls.each do |tc|
     puts "Model wants to call: #{tc.name}(#{tc.arguments})"
 
     # You execute the tool yourself
@@ -34,19 +34,19 @@ if result.has_tool_calls?
     puts "Result: #{output}"
   end
 else
-  puts "No tool call, text response: #{result.text_response}"
+  puts "No tool call, text response: #{response.content}"
 end
 
 # --- With execute: true, tools run automatically ---
 puts
 puts "=== Tool Calling (auto-execute) ==="
 messages = [{ role: "user", content: "What's the weather in Tokyo?" }]
-result = llm.chat_with_tools(messages, tools: [get_weather], execute: true, config: config)
+response = llm.chat(messages, tools: [get_weather], execute: true, config: config)
 
-if result.has_tool_calls?
-  result.tool_results.each do |tr|
-    puts "#{tr[:tool_call].name}(#{tr[:tool_call].arguments}) => #{tr[:result]}"
+if response.tool_calls?
+  response.tool_calls.each do |tc|
+    puts "#{tc.name}(#{tc.arguments}) => #{tc.error || tc.result}"
   end
 else
-  puts "Text response: #{result.text_response}"
+  puts "Text response: #{response.content}"
 end

@@ -39,9 +39,10 @@ You just ran a 1.1-billion parameter AI model inside Ruby. The model lives in yo
 ## Stream Responses Like a Pro
 
 ```ruby
-# Watch the AI think in real-time
-llm.chat_stream(messages) do |token|
-  print token
+# Watch the AI think in real-time. chat_stream yields typed events
+# (:content, :thinking, :tool_call, :done) — print the content as it arrives.
+llm.chat_stream(messages) do |event|
+  print event.delta if event.content?
 end
 ```
 
@@ -200,6 +201,53 @@ messages = [
 response = llm.chat(messages)
 ```
 
+### Chat Responses
+
+`chat` always returns a `Candle::ChatResponse`, whether the model produced plain
+text, reasoning, or tool calls — the same object shape every time:
+
+```ruby
+response = llm.chat(messages)
+response.content     # => the answer text (thinking and tool markup stripped)
+response.thinking    # => extracted reasoning, or nil
+response.tool_calls  # => Array<Candle::ToolCall> (empty when none)
+response.raw_response # => the complete, unmodified model output
+
+puts response        # ChatResponse#to_s returns content, so this prints the answer
+```
+
+### Reasoning / Thinking
+
+Reasoning models wrap their chain-of-thought in a tagged block. `chat` extracts it
+into `response.thinking` and keeps `response.content` clean. The tags are inferred
+from the model (e.g. Qwen3 and DeepSeek-R1 use `<think>...</think>`), and you can
+override or disable extraction per model or per call:
+
+```ruby
+llm.thinking_parser = ["<thinking>", "</thinking>"]  # custom tags for this model
+llm.chat(messages, thinking: false)                  # disable extraction for one call
+llm.chat(messages, thinking: ["<reason>", "</reason>"]) # custom tags for one call
+
+# Register tags for a model family globally
+Candle::LLM.register_thinking_tags(/my-model/i, "<think>", "</think>")
+```
+
+### Streaming
+
+`chat_stream` yields typed `Candle::StreamEvent` objects as generation proceeds,
+so you can distinguish reasoning from the answer from tool calls in real time:
+
+```ruby
+llm.chat_stream(messages, tools: [get_weather]) do |event|
+  case event.type
+  when :thinking  then print event.delta          # a chunk of reasoning
+  when :content   then print event.delta           # a chunk of the answer
+  when :tool_call then handle(event.tool_call)      # a complete tool call
+  when :done      then puts                          # stream finished
+  end
+end
+```
+
 ### GPU Acceleration
 
 We see an 18x speed up running LLMs under CUDA vs CPU and a >3x speed up running under Metal vs CPU. Details [here](docs/DEVICE_SUPPORT.md#performance-considerations).
@@ -293,34 +341,34 @@ get_weather = Candle::Tool.new(
 
 ### Extracting Tool Calls
 
-`chat_with_tools` injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. It does **not** feed results back to the model — it just tells you what the model wants to call. You decide what to do with it:
+Pass `tools:` to `chat` and it injects tool definitions into the system prompt, generates a response, and parses any `<tool_call>` tags from the output. It does **not** feed results back to the model — it just tells you what the model wants to call. You decide what to do with it:
 
 ```ruby
 llm = Candle::LLM.from_pretrained("Qwen/Qwen3-0.6B")
 
 messages = [{ role: "user", content: "What's the weather in San Francisco?" }]
-result = llm.chat_with_tools(messages, tools: [get_weather],
+response = llm.chat(messages, tools: [get_weather],
   config: Candle::GenerationConfig.deterministic(max_length: 500))
 
-if result.has_tool_calls?
-  result.tool_calls.each do |tc|
+if response.tool_calls?
+  response.tool_calls.each do |tc|
     puts "#{tc.name}(#{tc.arguments})"
     output = get_weather.call(tc.arguments)
     puts "=> #{output}"
   end
 else
-  puts result.text_response
+  puts response.content
 end
 ```
 
-Pass `execute: true` to automatically run the tools (but still no round-trip back to the model):
+Pass `execute: true` to automatically run the tools (but still no round-trip back to the model). The result/error is attached to each `ToolCall`:
 
 ```ruby
-result = llm.chat_with_tools(messages, tools: [get_weather], execute: true,
+response = llm.chat(messages, tools: [get_weather], execute: true,
   config: Candle::GenerationConfig.deterministic(max_length: 500))
 
-result.tool_results.each do |tr|
-  puts "#{tr[:tool_call].name} => #{tr[:result]}"
+response.tool_calls.each do |tc|
+  puts "#{tc.name} => #{tc.error || tc.result}"
 end
 ```
 
