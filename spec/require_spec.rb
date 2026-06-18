@@ -43,7 +43,11 @@ RSpec.describe "Native extension loading" do
     # This is critical because RubyGems places compiled extensions in the
     # extensions directory, not in the gem's lib/ directory.
     candle_rb = File.read(File.expand_path("../lib/candle.rb", __dir__))
+    # Flat fallback path (source/dev builds) must still be present...
     expect(candle_rb).to include('require "candle/candle"')
+    # ...and the Ruby-ABI-versioned path used by precompiled fat gems must be tried
+    # first (lib/candle/<major.minor>/candle.{so,bundle}).
+    expect(candle_rb).to match(%r{require "candle/.+/candle"})
     expect(candle_rb).not_to include('require_relative "candle/candle"')
   end
 end
