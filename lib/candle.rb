@@ -1,5 +1,19 @@
 require_relative "candle/logger"
-require "candle/candle"
+
+# Load the compiled Rust extension. Precompiled (platform) gems install it into a
+# Ruby-ABI-versioned subdir (lib/candle/<major.minor>/candle.{so,bundle}) so a single
+# fat gem can carry a binary per Ruby version; source/dev builds place it flat at
+# lib/candle/candle.{so,bundle}. Try the versioned path first, fall back to the flat
+# one. Resolution goes through $LOAD_PATH (`require`, never `require_relative`) because
+# RubyGems installs native extensions outside the gem's lib/ dir — see
+# spec/require_spec.rb and Issue #75.
+begin
+  RUBY_VERSION =~ /(\d+\.\d+)/
+  require "candle/#{Regexp.last_match(1)}/candle"
+rescue LoadError
+  require "candle/candle"
+end
+
 require_relative "candle/tensor"
 require_relative "candle/device_utils"
 require_relative "candle/embedding_model_type"

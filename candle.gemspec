@@ -23,7 +23,20 @@ Gem::Specification.new do |spec|
     "Gemfile",
     "bin/*"
   ]
-  spec.extensions  = ["ext/candle/extconf.rb"]
+  # Precompiled platform gems (e.g. arm64-darwin, built natively on a macOS runner)
+  # carry one compiled extension per Ruby ABI under lib/candle/<major.minor>/ and must
+  # NOT declare extensions, or RubyGems would try to recompile from Rust source on
+  # install — defeating the precompiled gem. The linux platform gems are assembled by
+  # rake-compiler/rb_sys (via oxidize-rb cross-gem), which clears extensions itself; this
+  # env gate covers the manually-assembled darwin fat gem. Unset => normal source gem.
+  if (platform_gem = ENV["RED_CANDLE_PLATFORM_GEM"])
+    spec.platform   = platform_gem
+    spec.extensions = []
+    spec.files     += Dir["lib/candle/*/candle.bundle"] + Dir["lib/candle/*/candle.so"]
+  else
+    spec.extensions = ["ext/candle/extconf.rb"]
+  end
+
   spec.authors     = ["Christopher Petersen", "kojix2"]
   spec.email       = ["chris@petersen.io", "2xijok@gmail.com"]
   spec.homepage    = "https://github.com/scientist-labs/red-candle"
