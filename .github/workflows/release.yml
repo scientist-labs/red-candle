@@ -1,7 +1,7 @@
 name: Release
 
 # ============================================================================
-# red-candle's MIGRATED release workflow — adopts scientist-labs/rust-gem-release@v0.
+# red-candle's MIGRATED release workflow — adopts scientist-labs/rust-gem-release@0.8.0.
 #
 # BEFORE: this file was a 270-line, 5-job workflow that hand-rolled the
 #   source + x86_64-linux + aarch64-linux + arm64-darwin build/push/attach
@@ -60,7 +60,7 @@ jobs:
     # Normal PRs don't run the expensive full-matrix build. Tags and dispatches always
     # run; a PR runs ONLY when carrying the `dry-run-release` label.
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'dry-run-release') }}
-    uses: scientist-labs/rust-gem-release/.github/workflows/release.yml@v0
+    uses: scientist-labs/rust-gem-release/.github/workflows/release.yml@0.8.0
     with:
       # --- name aliasing: gem-name != ext-name != gemspec basename ---
       gem-name: red-candle
