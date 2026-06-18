@@ -13,7 +13,12 @@ candle-core = { version = "0.9.2" }
 candle-nn = { version = "0.9.2" }
 candle-transformers = { version = "0.9.2" }
 tokenizers = { version = "0.22.0", default-features = true, features = ["fancy-regex"] }
-hf-hub = "0.4.1"
+# Drop hf-hub's default `default-tls` (= native-tls = openssl-sys), which can't
+# cross-compile to aarch64-linux (no OpenSSL headers in the cross sysroot). Keep
+# both API surfaces red-candle uses — `tokio` (async, via reqwest) and `ureq`
+# (sync) — and route reqwest through rustls (`rustls-tls`); ureq defaults to
+# rustls+ring. This removes openssl-sys from every platform's build.
+hf-hub = { version = "0.4.1", default-features = false, features = ["tokio", "ureq", "rustls-tls"] }
 half = "2.6.0"
 magnus = "0.8"
 safetensors = "0.3"
