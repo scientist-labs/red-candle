@@ -2,7 +2,16 @@
 
 require "bundler/gem_tasks"
 require "rake/extensiontask"
-require "rspec/core/rake_task"
+
+# rspec is a dev-only dependency. The rb-sys-dock cross-compile container installs
+# the RUNTIME bundle only, so this require is absent there — guard it so the Rakefile
+# (and therefore the `native:<platform>` cross tasks) still loads in a build-only env.
+begin
+  require "rspec/core/rake_task"
+  RSPEC_AVAILABLE = true
+rescue LoadError
+  RSPEC_AVAILABLE = false
+end
 
 task default: :spec
 
@@ -90,18 +99,28 @@ desc "Run Rust tests with coverage (alias)"
 task "coverage:rust" => "rust:coverage:html"
 
 # RSpec tasks
-desc "Run RSpec tests"
-RSpec::Core::RakeTask.new(:spec) do |t|
-  t.rspec_opts = "--format progress"
+if RSPEC_AVAILABLE
+  desc "Run RSpec tests"
+  RSpec::Core::RakeTask.new(:spec) do |t|
+    t.rspec_opts = "--format progress"
+  end
+else
+  desc "spec (rspec unavailable here)"
+  task(:spec) { abort "rspec is a dev dependency — not available in this environment" }
 end
 
 # Add compile as a dependency for spec task
 task spec: :compile
 
 namespace :spec do
-  desc "Run RSpec tests with all devices"
-  RSpec::Core::RakeTask.new(:device) do |t|
-    t.rspec_opts = "--format documentation --tag device"
+  if RSPEC_AVAILABLE
+    desc "Run RSpec tests with all devices"
+    RSpec::Core::RakeTask.new(:device) do |t|
+      t.rspec_opts = "--format documentation --tag device"
+    end
+  else
+    desc "spec:device (rspec unavailable here)"
+    task(:device) { abort "rspec is a dev dependency — not available in this environment" }
   end
   
   desc "Run RSpec tests with coverage"

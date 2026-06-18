@@ -42,6 +42,12 @@ on:
         type: boolean
         default: false
         description: "push to RubyGems (default off = dry-run)"
+  # Label-gated full-matrix DRY-RUN: applying the `dry-run-release` label to a PR
+  # validates the real precompiled release pipeline (source + x86_64-linux +
+  # aarch64-linux + arm64-darwin) pre-merge, publish=false. workflow_dispatch can't
+  # reach a branch-only workflow, so the PR event is how we exercise it on a branch.
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 # A reusable workflow can only REDUCE the inherited token scope, never elevate
 # it — so the caller MUST grant contents: write here (and the repo's default
@@ -51,6 +57,9 @@ permissions:
 
 jobs:
   release:
+    # Normal PRs don't run the expensive full-matrix build. Tags and dispatches always
+    # run; a PR runs ONLY when carrying the `dry-run-release` label.
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'dry-run-release') }}
     uses: scientist-labs/rust-gem-release/.github/workflows/release.yml@v0
     with:
       # --- name aliasing: gem-name != ext-name != gemspec basename ---
@@ -76,8 +85,9 @@ jobs:
       darwin-verify-cmd: |
         otool -L "$BUNDLE" | grep -Eiq '(Metal|Accelerate)\.framework' || { echo "::error::darwin build did not link Metal/Accelerate — CPU-only regression"; exit 1; }
       # Dry-run-safe intent gate: a pushed tag publishes (token-gated by the
-      # RUBYGEMS_API_KEY secret); a manual dispatch dry-runs unless publish=true.
-      publish: ${{ github.event_name == 'push' || inputs.publish }}
+      # RUBYGEMS_API_KEY secret); a manual dispatch dry-runs unless publish=true;
+      # a labeled PR is ALWAYS a dry-run (inputs.publish is null on pull_request).
+      publish: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
       build-darwin: true
       build-x86_64-linux: true
       build-aarch64-linux: true
