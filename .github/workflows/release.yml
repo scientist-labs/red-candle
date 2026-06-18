@@ -5,7 +5,7 @@ name: Release
 #   - the source "ruby" gem            (fallback for any platform/ABI below, and for
 #                                        GPU/Metal-from-source via force_ruby_platform)
 #   - red-candle-<v>-x86_64-linux.gem  (precompiled, CPU-only, glibc)
-#   - red-candle-<v>-aarch64-linux.gem (precompiled, CPU-only, glibc; built natively)
+#   - red-candle-<v>-aarch64-linux.gem (precompiled, CPU-only, glibc; cross-compiled on x86_64)
 #   - red-candle-<v>-arm64-darwin.gem  (precompiled, Metal + Accelerate; built natively)
 # Each fat gem carries one compiled extension per Ruby ABI in RUBY_VERSIONS, so consumers
 # install with no Rust toolchain.
@@ -116,13 +116,29 @@ jobs:
           - platform: x86_64-linux
             runs-on: ubuntu-24.04
           - platform: aarch64-linux
-            runs-on: ubuntu-24.04-arm
+            # Cross-compiled on x86_64 via rb-sys-dock (cross toolchain, not QEMU).
+            # The native ubuntu-24.04-arm host trips the pinned cross-gem's
+            # cargo-binstall host-triple lookup (KeyError aarch64-unknown-linux-musl).
+            runs-on: ubuntu-24.04
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: ruby/setup-ruby@89f90524b88a01fe6e0b732220432cc6142926af # v1.313.0
         with:
           ruby-version: "3.4"
+      # aws-lc-sys 0.41.0's `cc` builder hard-panics under rb-sys-dock's
+      # x86_64-linux-gnu-gcc (gcc bug 95189). Route it through the CMake builder
+      # instead. cross-gem@v1.4.4 has no env input and a fixed -e allowlist, but it
+      # bind-mounts the repo, so a .cargo/config.toml [env] at the repo root is read
+      # by cargo and applied to build scripts. Scoped to x86_64 ONLY: the panic is
+      # skipped on cross builds (HOST!=TARGET), so the aarch64 leg uses the default
+      # cc-cross path, and darwin/source (already green) are untouched.
+      - name: Force aws-lc-sys CMake builder (x86_64 only)
+        if: matrix.platform == 'x86_64-linux'
+        run: |
+          mkdir -p .cargo
+          printf '[env]\nAWS_LC_SYS_CMAKE_BUILDER = "1"\n' > .cargo/config.toml
+          cat .cargo/config.toml
       - uses: oxidize-rb/actions/cross-gem@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1.4.4
         id: cross-gem
         with:

@@ -1,0 +1,22 @@
+# Route aws-lc-sys (pulled in transitively: hf-hub -> rustls -> aws-lc-rs ->
+# aws-lc-sys) through its CMake builder instead of the default `cc` builder.
+#
+# The `cc` builder runs a memcmp_check guard (aws-lc-sys-0.41.0/builder/
+# cc_builder.rs:765) that hard-panics under the rb-sys-dock x86_64-linux-gnu-gcc
+# with "### COMPILER BUG DETECTED ###" (gcc bug 95189). The CMake builder path
+# (builder/cmake_builder.rs) delegates to AWS-LC's own CMakeLists and does NOT
+# contain that Rust panic, so the cross-gem build completes.
+#
+# This is the only injection mechanism that reaches the build: the pinned
+# oxidize-rb/actions/cross-gem@v1.4.4 has no `env` input and its `pre-script`
+# input is not wired into the rb-sys-dock --build command, and rb-sys-dock only
+# forwards a fixed `-e` allowlist (no AWS_LC_SYS_*). rb-sys-dock bind-mounts the
+# repo (`-v $(pwd):$(pwd)`), so this committed config is read inside the
+# container; cargo applies [env] to build scripts, including the aws-lc-sys cc/
+# cmake compilation. cmake ships in rb-sys-dock and on the macos-26 runners.
+#
+# Do NOT downgrade aws-lc-sys below 0.41.0: the bump (commit 8aa178c) resolved a
+# Dependabot security alert, and 0.41.0 is the newest release (the 95189 guard is
+# still present in it), so `cargo update` is not an alternative.
+[env]
+AWS_LC_SYS_CMAKE_BUILDER = "1"
