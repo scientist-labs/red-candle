@@ -20,8 +20,10 @@ name: Release
 on:
   push:
     tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+"        # release:    1.8.0
+      - "[0-9]+.[0-9]+.[0-9]+.*"      # prerelease: 1.8.0.pre1, 1.8.0.rc2 (RubyGems dot form)
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+.*"
 
 permissions:
   contents: read
@@ -40,6 +42,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - id: v
@@ -50,8 +53,10 @@ jobs:
             echo "::error::tag '$TAG' != lib/candle/version.rb ('$FILE_VER'). Bump version.rb before tagging."
             exit 1
           fi
+          PRE="$(ruby -rrubygems -e 'print Gem::Version.new(ARGV[0]).prerelease?' "$TAG")"
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Releasing red-candle $TAG"
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          echo "Releasing red-candle $TAG (prerelease=$PRE)"
 
   # ---------------------------------------------------------------------------
   # Source gem (platform "ruby"). Pushed first and creates the GitHub Release, so
@@ -85,12 +90,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          PRERELEASE_FLAG=""
+          [ "${{ needs.prepare.outputs.prerelease }}" = "true" ] && PRERELEASE_FLAG="--prerelease"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" red-candle-*.gem --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               --title "v${{ needs.prepare.outputs.version }}" \
-              --generate-notes red-candle-*.gem
+              $PRERELEASE_FLAG --generate-notes red-candle-*.gem
           fi
 
   # ---------------------------------------------------------------------------
