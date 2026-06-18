@@ -1,21 +1,33 @@
 name: Release
 
-# Publishes red-candle when a version tag (e.g. `1.7.2`) is pushed. Produces, for that
-# version:
-#   - the source "ruby" gem            (fallback for any platform/ABI below, and for
-#                                        GPU/Metal-from-source via force_ruby_platform)
-#   - red-candle-<v>-x86_64-linux.gem  (precompiled, CPU-only, glibc)
-#   - red-candle-<v>-aarch64-linux.gem (precompiled, CPU-only, glibc; cross-compiled on x86_64)
-#   - red-candle-<v>-arm64-darwin.gem  (precompiled, Metal + Accelerate; built natively)
-# Each fat gem carries one compiled extension per Ruby ABI in RUBY_VERSIONS, so consumers
-# install with no Rust toolchain.
+# ============================================================================
+# red-candle's MIGRATED release workflow — adopts scientist-labs/rust-gem-release@0.8.0.
 #
-# Release procedure (the tag, not CI, drives this — a CI-created tag would not re-trigger):
+# BEFORE: this file was a 270-line, 5-job workflow that hand-rolled the
+#   source + x86_64-linux + aarch64-linux + arm64-darwin build/push/attach
+#   matrix inline.
+# AFTER (this file): a thin caller. It owns ONLY the bits a reusable
+#   (on: workflow_call) workflow cannot: the tag trigger, the workflow_dispatch
+#   intent gate, the contents:write token grant, and the per-gem inputs/secrets.
+#   Every build leg, SHA pin, and hard-won gotcha now lives once in the shared
+#   workflow. red-candle is the gem rust-gem-release was extracted FROM (1.8.0
+#   shipped all four platforms green on 2026-06-18), so the inputs below pass
+#   red-candle's exact values: same ext aliasing, same aws-lc-sys cargo-config,
+#   same Metal/Accelerate darwin verify.
+#
+# PUBLISH SAFETY (differs from today's always-publish behaviour):
+#   - A pushed version tag publishes to RubyGems (token-gated: an empty
+#     RUBYGEMS_API_KEY secret makes the push step a clean no-op).
+#   - A manual workflow_dispatch defaults to publish=false (DRY-RUN): it builds
+#     and attaches the gems to a GitHub Release but does NOT push to RubyGems
+#     unless you explicitly set publish=true on dispatch.
+#
+# Release procedure is unchanged (the tag drives it; a CI-created tag would
+# not re-trigger):
 #   1. bump lib/candle/version.rb
 #   2. git commit -am "Release vX.Y.Z"
 #   3. git tag X.Y.Z && git push origin HEAD --tags
-#
-# Third-party AND first-party actions are SHA-pinned (supply-chain). Comments show the tag.
+# ============================================================================
 
 on:
   push:
@@ -24,246 +36,62 @@ on:
       - "[0-9]+.[0-9]+.[0-9]+.*"      # prerelease: 1.8.0.pre1, 1.8.0.rc2 (RubyGems dot form)
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+.*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+        description: "push to RubyGems (default off = dry-run)"
+  # Label-gated full-matrix DRY-RUN: applying the `dry-run-release` label to a PR
+  # validates the real precompiled release pipeline (source + x86_64-linux +
+  # aarch64-linux + arm64-darwin) pre-merge, publish=false. workflow_dispatch can't
+  # reach a branch-only workflow, so the PR event is how we exercise it on a branch.
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
+# A reusable workflow can only REDUCE the inherited token scope, never elevate
+# it — so the caller MUST grant contents: write here (and the repo's default
+# workflow token must not be read-only) or `gh release create` 403s.
 permissions:
-  contents: read
-
-env:
-  # Ruby ABIs compiled into every fat gem. Floor = gemspec required_ruby_version (3.1);
-  # 3.3 = rx production (3.3.8); 4.0 = current GA. A consumer on an ABI outside this set
-  # transparently falls back to the source gem (which needs Rust).
-  RUBY_VERSIONS: "3.1,3.2,3.3,3.4,4.0"
+  contents: write
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Guard: the pushed tag must match lib/candle/version.rb. Fails fast otherwise.
-  # ---------------------------------------------------------------------------
-  prepare:
-    runs-on: ubuntu-24.04
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      prerelease: ${{ steps.v.outputs.prerelease }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - id: v
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          FILE_VER="$(ruby -r./lib/candle/version -e 'print Candle::VERSION')"
-          if [ "$TAG" != "$FILE_VER" ]; then
-            echo "::error::tag '$TAG' != lib/candle/version.rb ('$FILE_VER'). Bump version.rb before tagging."
-            exit 1
-          fi
-          PRE="$(ruby -rrubygems -e 'print Gem::Version.new(ARGV[0]).prerelease?' "$TAG")"
-          echo "version=$TAG" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
-          echo "Releasing red-candle $TAG (prerelease=$PRE)"
-
-  # ---------------------------------------------------------------------------
-  # Source gem (platform "ruby"). Pushed first and creates the GitHub Release, so
-  # a tag always yields at least an installable gem even if a native leg flakes.
-  # ---------------------------------------------------------------------------
-  source-gem:
-    needs: prepare
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: ruby/setup-ruby@89f90524b88a01fe6e0b732220432cc6142926af # v1.313.0
-        with:
-          ruby-version: "3.4"
-      - name: Build source gem
-        run: gem build candle.gemspec
-      - name: Push source gem (idempotent)
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: |
-          for gem in red-candle-*.gem; do
-            if ! out=$(gem push "$gem" 2>&1); then
-              echo "$out"
-              echo "$out" | grep -q "Repushing of gem versions is not allowed" \
-                && { echo "already published, skipping"; continue; }
-              exit 1
-            fi
-          done
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PRERELEASE_FLAG=""
-          [ "${{ needs.prepare.outputs.prerelease }}" = "true" ] && PRERELEASE_FLAG="--prerelease"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" red-candle-*.gem --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "v${{ needs.prepare.outputs.version }}" \
-              $PRERELEASE_FLAG --generate-notes red-candle-*.gem
-          fi
-
-  # ---------------------------------------------------------------------------
-  # Linux precompiled gems. x86_64 on ubuntu-24.04; aarch64 NATIVELY on the
-  # GitHub arm64 runner (free for public repos) — no QEMU. CPU-only by default
-  # (candle cargo default features = []); rb-sys-dock has no CUDA toolchain.
-  # ---------------------------------------------------------------------------
-  linux-gems:
-    needs: [prepare, source-gem]
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: x86_64-linux
-            runs-on: ubuntu-24.04
-          - platform: aarch64-linux
-            # Cross-compiled on x86_64 via rb-sys-dock (cross toolchain, not QEMU).
-            # The native ubuntu-24.04-arm host trips the pinned cross-gem's
-            # cargo-binstall host-triple lookup (KeyError aarch64-unknown-linux-musl).
-            runs-on: ubuntu-24.04
-    runs-on: ${{ matrix.runs-on }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: ruby/setup-ruby@89f90524b88a01fe6e0b732220432cc6142926af # v1.313.0
-        with:
-          ruby-version: "3.4"
-      # aws-lc-sys 0.41.0's `cc` builder hard-panics under rb-sys-dock's
-      # x86_64-linux-gnu-gcc (gcc bug 95189). Route it through the CMake builder
-      # instead. cross-gem@v1.4.4 has no env input and a fixed -e allowlist, but it
-      # bind-mounts the repo, so a .cargo/config.toml [env] at the repo root is read
-      # by cargo and applied to build scripts. Scoped to x86_64 ONLY: the panic is
-      # skipped on cross builds (HOST!=TARGET), so the aarch64 leg uses the default
-      # cc-cross path, and darwin/source (already green) are untouched.
-      - name: Force aws-lc-sys CMake builder (x86_64 only)
-        if: matrix.platform == 'x86_64-linux'
-        run: |
-          mkdir -p .cargo
-          printf '[env]\nAWS_LC_SYS_CMAKE_BUILDER = "1"\n' > .cargo/config.toml
-          cat .cargo/config.toml
-      - uses: oxidize-rb/actions/cross-gem@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1.4.4
-        id: cross-gem
-        with:
-          platform: ${{ matrix.platform }}
-          ruby-versions: ${{ env.RUBY_VERSIONS }}
-      - name: Push ${{ matrix.platform }} gem (idempotent)
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: |
-          for gem in ${{ steps.cross-gem.outputs.gem-path }}; do
-            echo "==> $gem"
-            if ! out=$(gem push "$gem" 2>&1); then
-              echo "$out"
-              echo "$out" | grep -q "Repushing of gem versions is not allowed" \
-                && { echo "already published, skipping"; continue; }
-              exit 1
-            fi
-          done
-      - name: Attach to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" ${{ steps.cross-gem.outputs.gem-path }} --clobber || true
-
-  # ---------------------------------------------------------------------------
-  # arm64-darwin: must be built NATIVELY on Apple Silicon. The oxidize-rb/rb-sys
-  # cross path is Linux/Docker-only and produces a CPU-only darwin binary (Metal
-  # frameworks can't link under osxcross). candle 0.9.2 compiles its Metal shaders
-  # at RUNTIME (no build.rs, no metallib), so building --features metal needs only
-  # the base CLT SDK — NO Metal Toolchain download, NO full-Xcode select.
-  # rake-compiler-dock can't make a native-mac fat gem either, so: compile one
-  # .bundle per Ruby ABI here, then assemble them in darwin-package.
-  # ---------------------------------------------------------------------------
-  darwin-build:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        ruby: ["3.1", "3.2", "3.3", "3.4", "4.0"]
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: oxidize-rb/actions/setup-ruby-and-rust@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1.4.4
-        with:
-          ruby-version: ${{ matrix.ruby }}
-          rustup-toolchain: stable
-          bundler-cache: true
-      - name: Compile native extension (Metal + Accelerate auto-enabled on darwin)
-        run: bundle exec rake compile
-      - name: Relocate bundle into Ruby-ABI subdir
-        run: |
-          MINOR="${{ matrix.ruby }}"
-          test -f lib/candle/candle.bundle
-          mkdir -p "lib/candle/${MINOR}"
-          mv lib/candle/candle.bundle "lib/candle/${MINOR}/candle.bundle"
-      - name: Verify arm64 + Metal/Accelerate linkage (CI runners have no GPU; link check only)
-        run: |
-          B="lib/candle/${{ matrix.ruby }}/candle.bundle"
-          file "$B"
-          file "$B" | grep -q arm64 \
-            || { echo "::error::$B is not arm64 — wrong runner?"; exit 1; }
-          otool -L "$B"
-          otool -L "$B" | grep -Eiq '(Metal|Accelerate)\.framework' \
-            || { echo "::error::darwin build did not link Metal/Accelerate — CPU-only regression"; exit 1; }
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: darwin-bundle-${{ matrix.ruby }}
-          path: lib/candle/${{ matrix.ruby }}/candle.bundle
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------------------
-  # Assemble the per-ABI .bundles into ONE arm64-darwin fat gem, push, attach.
-  # The gemspec's RED_CANDLE_PLATFORM_GEM branch sets platform=arm64-darwin,
-  # clears spec.extensions (no recompile-on-install), and packs the bundles.
-  # We publish the GENERIC arm64-darwin platform: RubyGems does not fall back
-  # across darwin majors, so a generic gem is what serves arm64-darwin-NN users.
-  # ---------------------------------------------------------------------------
-  darwin-package:
-    needs: [prepare, source-gem, darwin-build]
-    runs-on: macos-26
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: ruby/setup-ruby@89f90524b88a01fe6e0b732220432cc6142926af # v1.313.0
-        with:
-          ruby-version: "3.4"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: darwin-bundle-*
-          path: darwin-bundles
-      - name: Reassemble per-ABI bundle layout
-        run: |
-          for d in darwin-bundles/darwin-bundle-*; do
-            minor="${d##*darwin-bundle-}"
-            mkdir -p "lib/candle/${minor}"
-            mv "${d}/candle.bundle" "lib/candle/${minor}/candle.bundle"
-          done
-          echo "Assembled ABIs:"; ls -1 lib/candle/*/candle.bundle
-      - name: Build arm64-darwin fat gem
-        env:
-          RED_CANDLE_PLATFORM_GEM: arm64-darwin
-        run: gem build candle.gemspec
-      - name: Verify fat gem carries every ABI bundle
-        run: |
-          GEM="$(ls red-candle-*-arm64-darwin.gem)"
-          echo "Inspecting $GEM"
-          DATA="$(tar -xOf "$GEM" data.tar.gz | tar -tzf -)"
-          echo "$DATA" | grep -E 'lib/candle/[0-9.]+/candle\.bundle' || true
-          for v in 3.1 3.2 3.3 3.4 4.0; do
-            echo "$DATA" | grep -q "lib/candle/${v}/candle.bundle" \
-              || { echo "::error::fat gem missing ABI ${v}"; exit 1; }
-          done
-      - name: Push arm64-darwin gem (idempotent)
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: |
-          for gem in red-candle-*-arm64-darwin.gem; do
-            if ! out=$(gem push "$gem" 2>&1); then
-              echo "$out"
-              echo "$out" | grep -q "Repushing of gem versions is not allowed" \
-                && { echo "already published, skipping"; continue; }
-              exit 1
-            fi
-          done
-      - name: Attach to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" red-candle-*-arm64-darwin.gem --clobber || true
+  release:
+    # Normal PRs don't run the expensive full-matrix build. Tags and dispatches always
+    # run; a PR runs ONLY when carrying the `dry-run-release` label.
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'dry-run-release') }}
+    uses: scientist-labs/rust-gem-release/.github/workflows/release.yml@0.8.0
+    with:
+      # --- name aliasing: gem-name != ext-name != gemspec basename ---
+      gem-name: red-candle
+      ext-name: candle
+      # gemspec could be omitted (resolves to <ext-name>.gemspec = candle.gemspec);
+      # shown explicit for clarity.
+      gemspec: candle.gemspec
+      version-command: ruby -r./lib/candle/version -e 'print Candle::VERSION'
+      ruby-versions: "3.1,3.2,3.3,3.4,4.0"
+      compile-command: bundle exec rake compile
+      # red-candle's gemspec reads RED_CANDLE_PLATFORM_GEM, not the generic default.
+      platform-gem-env: RED_CANDLE_PLATFORM_GEM
+      darwin-platform: arm64-darwin
+      # The aws-lc-sys gcc-95189 workaround — literal .cargo/config.toml text
+      # written on the x86_64-linux leg ONLY.
+      x86_64-cargo-config: |
+        [env]
+        AWS_LC_SYS_CMAKE_BUILDER = "1"
+      # Extra darwin-leg assertion. $BUNDLE is exported by the shared workflow;
+      # the always-on arm64 `file` check stays hardcoded there and is NOT passed
+      # here.
+      darwin-verify-cmd: |
+        otool -L "$BUNDLE" | grep -Eiq '(Metal|Accelerate)\.framework' || { echo "::error::darwin build did not link Metal/Accelerate — CPU-only regression"; exit 1; }
+      # Dry-run-safe intent gate: a pushed tag publishes (token-gated by the
+      # RUBYGEMS_API_KEY secret); a manual dispatch dry-runs unless publish=true;
+      # a labeled PR is ALWAYS a dry-run (inputs.publish is null on pull_request).
+      publish: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+      build-darwin: true
+      build-x86_64-linux: true
+      build-aarch64-linux: true
+    secrets:
+      # Caller maps its own secret by name; required: false in the shared workflow
+      # lets an omitting fork get a clean skip instead of a hard error.
+      rubygems-api-key: ${{ secrets.RUBYGEMS_API_KEY }}
