@@ -1,5 +1,5 @@
 # :nocov:
 module Candle
-  VERSION = "1.8.0.pre3"
+  VERSION = "1.8.0"
 end
 # :nocov:
