@@ -1,7 +1,7 @@
 name: Release
 
 # ============================================================================
-# red-candle's MIGRATED release workflow — adopts scientist-labs/rust-gem-release@0.10.0.
+# red-candle's MIGRATED release workflow — adopts scientist-labs/rust-gem-release@0.11.0.
 #
 # BEFORE: this file was a 270-line, 5-job workflow that hand-rolled the
 #   source + x86_64-linux + aarch64-linux + arm64-darwin build/push/attach
@@ -38,6 +38,10 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+.*"
   workflow_dispatch:
     inputs:
+      version:
+        type: string
+        default: ""
+        description: "Version to cut + release, e.g. 1.0.0 (blank = build-only dry-run)"
       publish:
         type: boolean
         default: false
@@ -60,7 +64,7 @@ jobs:
     # Normal PRs don't run the expensive full-matrix build. Tags and dispatches always
     # run; a PR runs ONLY when carrying the `dry-run-release` label.
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'dry-run-release') }}
-    uses: scientist-labs/rust-gem-release/.github/workflows/release.yml@0.10.0
+    uses: scientist-labs/rust-gem-release/.github/workflows/release.yml@0.11.0
     with:
       # --- name aliasing: gem-name != ext-name != gemspec basename ---
       gem-name: red-candle
@@ -69,6 +73,9 @@ jobs:
       # shown explicit for clarity.
       gemspec: candle.gemspec
       version-command: ruby -r./lib/candle/version -e 'print Candle::VERSION'
+      version: ${{ inputs.version }}
+      bump-command: |
+        sed -i 's/^\( *VERSION *= *\).*/\1"'"$VERSION"'"/' lib/candle/version.rb
       ruby-versions: "3.1,3.2,3.3,3.4,4.0"
       compile-command: bundle exec rake compile
       # red-candle's gemspec reads RED_CANDLE_PLATFORM_GEM, not the generic default.
