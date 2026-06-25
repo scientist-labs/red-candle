@@ -66,10 +66,11 @@ llm_models.each do |entry|
     tokens.join
   end
   test("chat_stream") do
-    tokens = []
-    llm.chat_stream(messages, config: config) { |t| tokens << t }
-    raise "no tokens streamed" if tokens.empty?
-    tokens.join
+    events = []
+    llm.chat_stream(messages, config: config) { |e| events << e }
+    raise "no events streamed" if events.empty?
+    raise "no done event" unless events.last.done?
+    events.select(&:content?).map(&:delta).join
   end
   test("tokenizer access") { llm.tokenizer }
   test("eos_token") { llm.eos_token }

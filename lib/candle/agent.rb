@@ -28,16 +28,16 @@ module Candle
             "Agent exceeded maximum iterations (#{@max_iterations})"
         end
 
-        result = @llm.chat_with_tools(messages, tools: @tools, execute: true, **options)
+        result = @llm.chat(messages, tools: @tools, execute: true, **options)
 
-        if result.has_tool_calls?
+        if result.tool_calls?
           # If the model produced a substantial text answer alongside tool calls,
           # treat it as a final response (model is done, trailing tool calls are noise).
-          # Strip <think> blocks so they don't count toward the length check.
-          text_without_thinking = result.text_response&.gsub(/<think>.*?<\/think>/m, "")&.strip
-          if text_without_thinking && text_without_thinking.length > 50
+          # content already has thinking blocks stripped by ChatResponse.
+          final_text = result.content&.strip
+          if final_text && final_text.length > 50
             return AgentResult.new(
-              response: result.text_response,
+              response: result.content,
               messages: messages,
               iterations: iterations,
               tool_calls_made: messages.count { |m| m[:role] == "tool" }
@@ -46,14 +46,13 @@ module Candle
 
           messages << { role: "assistant", content: result.raw_response }
 
-          result.tool_results.each do |tr|
-            tool_name = tr[:tool_call]&.name || "unknown"
-            tool_output = tr[:error] ? "Error: #{tr[:error]}" : JSON.generate(tr[:result])
-            messages << { role: "tool", content: "[#{tool_name}] #{tool_output}" }
+          result.tool_calls.each do |tool_call|
+            tool_output = tool_call.error ? "Error: #{tool_call.error}" : JSON.generate(tool_call.result)
+            messages << { role: "tool", content: "[#{tool_call.name}] #{tool_output}" }
           end
         else
           return AgentResult.new(
-            response: result.text_response || result.raw_response,
+            response: result.content || result.raw_response,
             messages: messages,
             iterations: iterations,
             tool_calls_made: messages.count { |m| m[:role] == "tool" }

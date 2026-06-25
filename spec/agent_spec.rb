@@ -41,11 +41,10 @@ RSpec.describe Candle::Agent do
   describe "#run" do
     it "returns text response when no tool calls" do
       mock_llm = double("llm")
-      allow(mock_llm).to receive(:chat_with_tools).and_return(
-        Candle::ToolCallResult.new(
+      allow(mock_llm).to receive(:chat).and_return(
+        Candle::ChatResponse.new(
+          content: "Hello!",
           tool_calls: [],
-          tool_results: [],
-          text_response: "Hello!",
           raw_response: "Hello!"
         )
       )
@@ -62,20 +61,20 @@ RSpec.describe Candle::Agent do
       mock_llm = double("llm")
       call_count = 0
 
-      allow(mock_llm).to receive(:chat_with_tools) do |_messages, **_opts|
+      allow(mock_llm).to receive(:chat) do |_messages, **_opts|
         call_count += 1
         if call_count == 1
-          Candle::ToolCallResult.new(
-            tool_calls: [Candle::ToolCall.new(name: "echo", arguments: { "text" => "test" })],
-            tool_results: [{ tool_call: nil, result: { echoed: "test" }, error: nil }],
-            text_response: nil,
+          Candle::ChatResponse.new(
+            content: nil,
+            tool_calls: [
+              Candle::ToolCall.new(name: "echo", arguments: { "text" => "test" }, result: { echoed: "test" })
+            ],
             raw_response: "<tool_call>{\"name\":\"echo\",\"arguments\":{\"text\":\"test\"}}</tool_call>"
           )
         else
-          Candle::ToolCallResult.new(
+          Candle::ChatResponse.new(
+            content: "The echo returned: test",
             tool_calls: [],
-            tool_results: [],
-            text_response: "The echo returned: test",
             raw_response: "The echo returned: test"
           )
         end
@@ -91,11 +90,10 @@ RSpec.describe Candle::Agent do
 
     it "raises error when max iterations exceeded" do
       mock_llm = double("llm")
-      allow(mock_llm).to receive(:chat_with_tools).and_return(
-        Candle::ToolCallResult.new(
-          tool_calls: [Candle::ToolCall.new(name: "echo", arguments: {})],
-          tool_results: [{ tool_call: nil, result: "ok", error: nil }],
-          text_response: nil,
+      allow(mock_llm).to receive(:chat).and_return(
+        Candle::ChatResponse.new(
+          content: nil,
+          tool_calls: [Candle::ToolCall.new(name: "echo", arguments: {}, result: "ok")],
           raw_response: "<tool_call>{\"name\":\"echo\",\"arguments\":{}}</tool_call>"
         )
       )

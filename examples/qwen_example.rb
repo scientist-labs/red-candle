@@ -57,11 +57,11 @@ messages = [
 
 # Generate response
 # response = llm.chat(messages, config: config)
-# puts response
+# puts response.content
 
 # Or stream the response
-# llm.chat_stream(messages, config: config) do |token|
-#   print token
+# llm.chat_stream(messages, config: config) do |event|
+#   print event.delta if event.content?
 # end
 RUBY
 
