@@ -634,8 +634,91 @@ Choose based on your needs:
 
 5. **Memory Usage**:
    - Model size: ~125MB
-   - Each batch processes all documents simultaneously
+   - Documents are processed in bounded micro-batches (`batch_size:`, default 16) rather
+     than one tensor for every candidate — see [Production Usage](#production-usage-immutable-revisions-batching--concurrency) below
    - Consider batching if you have many documents
+
+## Production Usage: Immutable Revisions, Batching & Concurrency
+
+For running a reranker in-process as a long-lived, shared singleton (e.g. one instance
+memoized behind a Puma/Rails app, reused across requests and threads), a few options
+matter beyond the basics above.
+
+### Pinning an Immutable Revision
+
+By default `from_pretrained` tracks the repository's default branch ("main"), matching
+prior versions of Red Candle. Pass `revision:` to pin the model, tokenizer, and config to
+an exact HuggingFace revision (a commit SHA, tag, or branch) — production code should
+almost always do this, so a model repo update can never silently change what's loaded:
+
+```ruby
+reranker = Candle::Reranker.from_pretrained(
+  "cross-encoder/ms-marco-MiniLM-L6-v2",
+  device: Candle::Device.cpu,
+  revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+)
+
+reranker.options["revision"] # => "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+```
+
+When `revision:` is given, files are fetched from exactly that revision — there is no
+fallback to the default branch. Both `options` and `inspect` surface the active revision,
+and load/inference errors include the model id and revision to make failures easy to
+diagnose. Downloaded files are cached locally by `hf-hub` the same way regardless of
+revision (see [`docs/HUGGINGFACE.md`](docs/HUGGINGFACE.md)), so a pinned revision does not
+mean re-downloading on every process start.
+
+### Bounded Micro-Batching
+
+`batch_size:` (default `16`) controls how many query-document pairs are processed per
+forward pass. Passing 100 documents with `batch_size: 16` runs 7 micro-batches
+internally instead of building one tensor sized for all 100 candidates at once — this
+keeps peak memory bounded on CPU regardless of how many candidates a caller sends in one
+`#rerank` call. Results are identical to a single large batch: each document's global
+`doc_id` is preserved, and the final ranking is sorted once, globally, by descending
+score (ties broken by ascending original index). `batch_size` must be a positive integer;
+anything else raises `ArgumentError`.
+
+```ruby
+reranker = Candle::Reranker.from_pretrained(
+  "cross-encoder/ms-marco-MiniLM-L6-v2", revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+  batch_size: 16
+)
+reranker.rerank(query, one_hundred_documents) # processed as 7 micro-batches of ≤16
+```
+
+See [`bench/reranker_bench.rb`](bench/reranker_bench.rb) and
+[`docs/RERANKER_BENCHMARKS.md`](docs/RERANKER_BENCHMARKS.md) for latency/throughput/memory
+measurements across candidate counts, `max_length`, and `batch_size`.
+
+### Thread Safety & Singleton Reuse
+
+A single `Candle::Reranker` instance is safe to call concurrently from multiple Ruby
+threads for **BERT, XLM-RoBERTa, DeBERTa, and ModernBERT** models (which includes
+`cross-encoder/ms-marco-MiniLM-L6-v2`) — this is exactly the memoized-singleton-shared-
+across-Puma-threads pattern. `#rerank` releases the GVL for tokenization, inference,
+scoring, and sorting, so concurrent calls run in true parallel — there is no internal
+lock serializing them, because these architectures have no mutable state to protect
+(weights are loaded once and never mutated; candle's tensor storage is designed for
+concurrent reads).
+
+**Qwen3** reranker models are the one exception: they hold a KV cache that is genuinely
+mutated during each forward pass, so concurrent calls on one Qwen3 reranker instance are
+internally serialized with a narrowly-scoped lock (acquired without holding the GVL, so
+waiting threads don't block unrelated Ruby work). If you need concurrent Qwen3 reranking
+throughput, use one reranker instance per thread instead of sharing one.
+
+```ruby
+# Safe: one reranker, shared across request threads
+RERANKER = Candle::Reranker.from_pretrained(
+  "cross-encoder/ms-marco-MiniLM-L6-v2",
+  revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+  device: Candle::Device.cpu
+).freeze
+```
+
+See `spec/reranker_concurrency_spec.rb` for a regression test that exercises this with 8
+threads making concurrent calls through one instance.
 
 ## Tokenizer
 
