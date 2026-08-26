@@ -1,0 +1,70 @@
+{
+  "model_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
+  "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+  "pooling_method": "pooler",
+  "generated_with": {
+    "python": "3.14.6",
+    "torch": "2.13.0",
+    "transformers": "5.16.1",
+    "sentence_transformers": "6.0.0"
+  },
+  "note": "Each pair tokenized and scored individually (batch of one, no padding) \u2014 matches Red Candle's batch-of-one path exactly. See docs/RERANKER_PARITY.md.",
+  "pairs": [
+    {
+      "query": "What is the capital of France?",
+      "document": "The capital of France is Paris.",
+      "max_length": 512,
+      "token_count": 17,
+      "raw_logit": 9.26525592803955,
+      "sigmoid_score": 0.9999053478240967
+    },
+    {
+      "query": "What is the capital of France?",
+      "document": "Berlin is the capital of Germany.",
+      "max_length": 512,
+      "token_count": 17,
+      "raw_logit": -2.5410141944885254,
+      "sigmoid_score": 0.07303248345851898
+    },
+    {
+      "query": "How many people live in London?",
+      "document": "Around 9 million people live in London.",
+      "max_length": 512,
+      "token_count": 18,
+      "raw_logit": 10.180065155029297,
+      "sigmoid_score": 0.9999620914459229
+    },
+    {
+      "query": "How many people live in London?",
+      "document": "The weather in London is often rainy.",
+      "max_length": 512,
+      "token_count": 18,
+      "raw_logit": -8.404815673828125,
+      "sigmoid_score": 0.00022373696265276521
+    },
+    {
+      "query": "What are the benefits of regular exercise?",
+      "document": "Regular exercise improves cardiovascular health, strengthens muscles and bones, boosts mood through endorphin release, and helps maintain a healthy body weight over time.",
+      "max_length": 512,
+      "token_count": 43,
+      "raw_logit": 9.85978889465332,
+      "sigmoid_score": 0.9999477863311768
+    },
+    {
+      "query": "What are the benefits of regular exercise?",
+      "document": "The train departs from platform nine at noon.",
+      "max_length": 512,
+      "token_count": 21,
+      "raw_logit": -11.200197219848633,
+      "sigmoid_score": 1.3671312444785144e-05
+    },
+    {
+      "query": "What is machine learning?",
+      "document": "Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence. Machine learning is a subfield of artificial intelligence.",
+      "max_length": 512,
+      "token_count": 512,
+      "raw_logit": 6.113659381866455,
+      "sigmoid_score": 0.9977924823760986
+    }
+  ]
+}

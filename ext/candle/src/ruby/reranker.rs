@@ -15,11 +15,16 @@ use candle_transformers::models::qwen3::{
 use candle_core::{Device as CoreDevice, Tensor, IndexOp, DType};
 use candle_nn::{VarBuilder, Linear, Module, ops::sigmoid};
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use tokenizers::{EncodeInput, Tokenizer};
-use std::cell::RefCell;
+use tokenizers::{EncodeInput, PaddingParams, PaddingDirection, Tokenizer};
+use std::sync::Mutex;
 use crate::ruby::{Device, Result};
 use crate::gvl;
-use crate::tokenizer::{TokenizerWrapper, loader::TokenizerLoader};
+use crate::tokenizer::{TokenizerWrapper, loader::{TokenizerLoader, standard_padding_params}};
+
+/// Default number of query-document pairs processed per forward pass.
+/// Conservative for CPU: bounds peak tensor size regardless of how many
+/// candidates the caller passes in.
+const DEFAULT_BATCH_SIZE: usize = 16;
 
 enum RerankerModel {
     Bert {
@@ -45,7 +50,12 @@ enum RerankerModel {
         pad_token_id: u32,
     },
     Qwen3 {
-        model: RefCell<Qwen3Model>,
+        // Qwen3's KV cache is mutated during forward (`clear_kv_cache`, `forward`).
+        // The GVL is released during compute, so multiple Ruby threads can genuinely
+        // run `compute_rerank` concurrently on the same `&self` — a `RefCell` here
+        // would race on its (non-atomic) borrow-tracking counter. `Mutex` makes that
+        // sound; other variants below have no interior mutability and need no lock.
+        model: Mutex<Qwen3Model>,
         yes_token_id: u32,
         no_token_id: u32,
     },
@@ -57,24 +67,59 @@ pub struct Reranker {
     tokenizer: TokenizerWrapper,
     device: CoreDevice,
     model_id: String,
+    revision: Option<String>,
+    max_length: usize,
+    batch_size: usize,
 }
 
 impl Reranker {
-    pub fn new(model_id: String, device: Option<Device>, max_length: Option<usize>) -> Result<Self> {
+    pub fn new(
+        model_id: String,
+        device: Option<Device>,
+        max_length: Option<usize>,
+        revision: Option<String>,
+        batch_size: Option<i64>,
+    ) -> Result<Self> {
+        let ruby = Ruby::get().unwrap();
         let device = device.unwrap_or(Device::best()).as_device()?;
         let max_length = max_length.unwrap_or(512);  // Default to 512
-        Self::new_with_core_device(model_id, device, max_length)
+        // i64 (not usize) so a negative value is a clean ArgumentError here, rather than
+        // failing type conversion at the FFI boundary before this check ever runs. The
+        // Ruby layer already validates batch_size; this is defense-in-depth for any other
+        // caller of `_create`.
+        let batch_size = match batch_size {
+            None => DEFAULT_BATCH_SIZE,
+            Some(n) if n >= 1 => n as usize,
+            Some(n) => {
+                return Err(Error::new(
+                    ruby.exception_arg_error(),
+                    format!("batch_size must be a positive integer, got {}", n),
+                ));
+            }
+        };
+        Self::new_with_core_device(model_id, device, max_length, revision, batch_size)
     }
 
-    fn new_with_core_device(model_id: String, device: CoreDevice, max_length: usize) -> std::result::Result<Self, Error> {
+    fn new_with_core_device(
+        model_id: String,
+        device: CoreDevice,
+        max_length: usize,
+        revision: Option<String>,
+        batch_size: usize,
+    ) -> std::result::Result<Self, Error> {
         let ruby = Ruby::get().unwrap();
         let runtime_error = ruby.exception_runtime_error();
 
         let result = (|| -> std::result::Result<(RerankerModel, TokenizerWrapper), Box<dyn std::error::Error + Send + Sync>> {
             let api = Api::new()?;
-            let repo = api.repo(Repo::new(model_id.clone(), RepoType::Model));
+            let repo = match &revision {
+                Some(rev) => Repo::with_revision(model_id.clone(), RepoType::Model, rev.clone()),
+                None => Repo::new(model_id.clone(), RepoType::Model),
+            };
+            let repo = api.repo(repo);
 
-            // Download model files
+            // Download model files (pinned to `revision` when given — ApiRepo::get resolves
+            // exactly that revision's files or errors; it never falls back to another ref).
             let config_filename = repo.get("config.json")?;
             let tokenizer_filename = repo.get("tokenizer.json")?;
             let weights_filename = repo.get("model.safetensors")?;
@@ -84,9 +129,19 @@ impl Reranker {
             let raw_config: serde_json::Value = serde_json::from_str(&config_str)?;
             let model_type = raw_config["model_type"].as_str().unwrap_or("bert");
 
-            // Setup tokenizer with padding AND truncation
+            // Setup tokenizer with padding AND truncation.
+            // Pad RIGHT (not the shared default of left): candle-transformers' BertEmbeddings
+            // assigns position ids as a flat 0..seq_len regardless of padding, so left-padding
+            // would give shorter documents in a mixed-length batch the wrong absolute position
+            // embeddings. Right-padding keeps every real token's position id correct; padded
+            // positions are masked out of attention anyway. Scoped to the reranker only —
+            // EmbeddingModel/NER keep the shared default.
             let tokenizer = Tokenizer::from_file(tokenizer_filename)?;
-            let tokenizer = TokenizerLoader::with_padding(tokenizer, None);
+            let right_padding = PaddingParams {
+                direction: PaddingDirection::Right,
+                ..standard_padding_params()
+            };
+            let tokenizer = TokenizerLoader::with_padding(tokenizer, Some(right_padding));
             let tokenizer = TokenizerLoader::with_truncation(tokenizer, max_length);
 
             // Load model weights
@@ -128,7 +183,7 @@ impl Reranker {
                         .unwrap_or(2152);
 
                     RerankerModel::Qwen3 {
-                        model: RefCell::new(model),
+                        model: Mutex::new(model),
                         yes_token_id,
                         no_token_id,
                     }
@@ -158,9 +213,15 @@ impl Reranker {
 
         match result {
             Ok((model, tokenizer)) => {
-                Ok(Self { model, tokenizer, device, model_id })
+                Ok(Self { model, tokenizer, device, model_id, revision, max_length, batch_size })
             }
-            Err(e) => Err(Error::new(runtime_error, format!("Failed to load model: {}", e))),
+            Err(e) => {
+                let revision_desc = revision.as_deref().unwrap_or("main");
+                Err(Error::new(
+                    runtime_error,
+                    format!("Failed to load model '{}' at revision '{}': {}", model_id, revision_desc, e),
+                ))
+            }
         }
     }
 
@@ -242,8 +303,32 @@ impl Reranker {
     }
 
     /// Pure compute portion of reranking — no Ruby API calls.
-    /// Returns ranked (document, score, original_index) tuples.
+    /// Processes `documents` in `self.batch_size`-sized micro-batches (never building one
+    /// tensor for every candidate at once), then merges and sorts globally. Returns ranked
+    /// (document, score, original_index) tuples, sorted by descending score with a stable
+    /// tie-break on original_index (`ranked_docs` is built in ascending original-index order
+    /// across chunks, and `sort_by` is a stable sort, so ties keep that order).
     fn compute_rerank(&self, query: &str, documents: &[String], pooling_method: &str, apply_sigmoid: bool) -> std::result::Result<Vec<(String, f32, usize)>, String> {
+        let batch_size = self.batch_size.max(1);
+        let mut ranked_docs: Vec<(String, f32, usize)> = Vec::with_capacity(documents.len());
+        let mut offset = 0usize;
+
+        for chunk in documents.chunks(batch_size) {
+            let chunk_scores = self.compute_rerank_batch(query, chunk, pooling_method, apply_sigmoid)?;
+            for (local_idx, (doc, score)) in chunk_scores.into_iter().enumerate() {
+                ranked_docs.push((doc, score, offset + local_idx));
+            }
+            offset += chunk.len();
+        }
+
+        ranked_docs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        Ok(ranked_docs)
+    }
+
+    /// Tokenizes, runs one forward pass, and scores a single micro-batch of documents.
+    /// Returns (document, score) pairs in the same order as `documents` — no Ruby API calls.
+    fn compute_rerank_batch(&self, query: &str, documents: &[String], pooling_method: &str, apply_sigmoid: bool) -> std::result::Result<Vec<(String, f32)>, String> {
         // Create query-document pairs for cross-encoder
         let query_and_docs: Vec<EncodeInput> = documents
             .iter()
@@ -366,7 +451,8 @@ impl Reranker {
                 // Qwen3 reranker: decoder-based yes/no scoring
                 // Process each document individually (causal LM, not batch encoder)
                 let mut scores_vec: Vec<f32> = Vec::with_capacity(documents.len());
-                let mut model = model.borrow_mut();
+                let mut model = model.lock()
+                    .map_err(|e| format!("Failed to lock Qwen3 model (poisoned): {}", e))?;
 
                 for doc in documents.iter() {
                     // Build the Qwen3 reranker prompt
@@ -434,19 +520,9 @@ impl Reranker {
         let scores_vec: Vec<f32> = scores.to_vec1()
             .map_err(|e| format!("Failed to convert scores to vec: {}", e))?;
 
-        // Create tuples with document, score, and original index
-        let mut ranked_docs: Vec<(String, f32, usize)> = documents
-            .iter()
-            .cloned()
-            .zip(scores_vec)
-            .enumerate()
-            .map(|(idx, (doc, score))| (doc, score, idx))
-            .collect();
-
-        // Sort documents by relevance score (descending)
-        ranked_docs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        Ok(ranked_docs)
+        // Pair documents with scores, preserving input order (caller assigns global indices
+        // and sorts across all micro-batches).
+        Ok(documents.iter().cloned().zip(scores_vec).collect())
     }
 
     /// Get the tokenizer used by this model
@@ -464,12 +540,25 @@ impl Reranker {
         Device::from_device(&self.device)
     }
 
+    /// Get the immutable HF revision this reranker was pinned to, if any
+    pub fn revision(&self) -> Option<String> {
+        self.revision.clone()
+    }
+
+    /// Get the micro-batch size used for reranking
+    pub fn batch_size(&self) -> usize {
+        self.batch_size
+    }
+
     /// Get all options as a hash
     pub fn options(&self) -> std::result::Result<RHash, Error> {
         let ruby = Ruby::get().unwrap();
         let hash = ruby.hash_new();
         hash.aset("model_id", self.model_id.clone())?;
         hash.aset("device", self.device().__str__())?;
+        hash.aset("revision", self.revision.clone())?;
+        hash.aset("max_length", self.max_length)?;
+        hash.aset("batch_size", self.batch_size)?;
         Ok(hash)
     }
 }
@@ -477,12 +566,14 @@ impl Reranker {
 pub fn init(rb_candle: RModule) -> std::result::Result<(), Error> {
     let ruby = Ruby::get().unwrap();
     let c_reranker = rb_candle.define_class("Reranker", ruby.class_object())?;
-    c_reranker.define_singleton_method("_create", function!(Reranker::new, 3))?;
+    c_reranker.define_singleton_method("_create", function!(Reranker::new, 5))?;
     c_reranker.define_method("rerank_with_options", method!(Reranker::rerank_with_options, 4))?;
     c_reranker.define_method("debug_tokenization", method!(Reranker::debug_tokenization, 2))?;
     c_reranker.define_method("tokenizer", method!(Reranker::tokenizer, 0))?;
     c_reranker.define_method("model_id", method!(Reranker::model_id, 0))?;
     c_reranker.define_method("device", method!(Reranker::device, 0))?;
+    c_reranker.define_method("revision", method!(Reranker::revision, 0))?;
+    c_reranker.define_method("batch_size", method!(Reranker::batch_size, 0))?;
     c_reranker.define_method("options", method!(Reranker::options, 0))?;
     Ok(())
 }

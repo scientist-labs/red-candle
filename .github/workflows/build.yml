@@ -112,6 +112,10 @@ jobs:
             spec/reranker_spec.rb
             spec/reranker_truncation_spec.rb
             spec/reranker_max_length_spec.rb
+            spec/reranker_revision_spec.rb
+            spec/reranker_batching_spec.rb
+            spec/reranker_concurrency_spec.rb
+            spec/reranker_parity_spec.rb
             spec/ner_spec.rb
             spec/ner_core_functionality_spec.rb
             spec/ner_comprehensive_spec.rb
