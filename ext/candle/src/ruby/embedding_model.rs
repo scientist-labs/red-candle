@@ -72,10 +72,11 @@ pub struct EmbeddingModelInner {
     model: Option<EmbeddingModelVariant>,
     tokenizer: Option<TokenizerWrapper>,
     embedding_size: Option<usize>,
+    max_length: Option<usize>,
 }
 
 impl EmbeddingModel {
-    pub fn new(model_id: Option<String>, tokenizer: Option<String>, device: Option<Device>, model_type: Option<String>, embedding_size: Option<usize>) -> Result<Self> {
+    pub fn new(model_id: Option<String>, tokenizer: Option<String>, device: Option<Device>, model_type: Option<String>, embedding_size: Option<usize>, max_length: Option<usize>) -> Result<Self> {
         let device = device.unwrap_or(Device::best()).as_device()?;
         let model_type = model_type
             .and_then(|mt| EmbeddingModelType::from_string(&mt))
@@ -86,14 +87,15 @@ impl EmbeddingModel {
             tokenizer_id: tokenizer.clone(),
             model_type: Some(model_type),
             model: match model_id.as_ref() {
-                Some(id) => Some(Self::build_embedding_model(id, device, model_type, embedding_size)?),
+                Some(id) => Some(Self::build_embedding_model(id, device, model_type, embedding_size, max_length)?),
                 None => None
             },
             tokenizer: match tokenizer {
-                Some(tid) => Some(Self::build_tokenizer(tid)?),
+                Some(tid) => Some(Self::build_tokenizer(tid, max_length)?),
                 None => None
             },
             embedding_size,
+            max_length,
         }))
     }
 
@@ -177,7 +179,7 @@ impl EmbeddingModel {
         }
     }
 
-    fn build_embedding_model(model_id: &str, device: CoreDevice, model_type: EmbeddingModelType, embedding_size: Option<usize>) -> Result<EmbeddingModelVariant> {
+    fn build_embedding_model(model_id: &str, device: CoreDevice, model_type: EmbeddingModelType, embedding_size: Option<usize>, max_length: Option<usize>) -> Result<EmbeddingModelVariant> {
         use hf_hub::{api::sync::Api, Repo, RepoType};
         let api = Api::new().map_err(wrap_hf_err)?;
         let repo = Repo::new(model_id.to_string(), RepoType::Model);
@@ -194,6 +196,11 @@ impl EmbeddingModel {
                 let final_emb_dim = Self::resolve_embedding_size(Path::new(&model_path), embedding_size)?;
                 let mut config = JinaConfig::v2_base();
                 config.hidden_size = final_emb_dim;
+                // JinaBERT precomputes an ALiBi bias of heads x len x len floats
+                // (3.2 GB at the default 8192), so size it to the inputs we accept.
+                if let Some(max_length) = max_length {
+                    config.max_position_embeddings = max_length;
+                }
                 let vb = unsafe {
                     VarBuilder::from_mmaped_safetensors(&[model_path], CoreDType::F32, &device)
                         .map_err(wrap_candle_err)?
@@ -268,7 +275,7 @@ impl EmbeddingModel {
         }
     }
 
-    fn build_tokenizer(tokenizer_id: String) -> Result<TokenizerWrapper> {
+    fn build_tokenizer(tokenizer_id: String, max_length: Option<usize>) -> Result<TokenizerWrapper> {
         use hf_hub::{api::sync::Api, Repo, RepoType};
         let tokenizer_path = Api::new()
                 .map_err(wrap_hf_err)?
@@ -282,6 +289,10 @@ impl EmbeddingModel {
             .map_err(wrap_std_err)?;
         
         let tokenizer = TokenizerLoader::with_padding(tokenizer, None);
+        let tokenizer = match max_length {
+            Some(max_length) => TokenizerLoader::with_truncation(tokenizer, max_length),
+            None => tokenizer,
+        };
         Ok(TokenizerWrapper::new(tokenizer))
     }
 
@@ -451,6 +462,11 @@ impl EmbeddingModel {
         if let Some(size) = self.0.embedding_size {
             hash.aset("embedding_size", size)?;
         }
+
+        // Add max_length
+        if let Some(max_length) = self.0.max_length {
+            hash.aset("max_length", max_length)?;
+        }
         
         Ok(hash)
     }
@@ -459,7 +475,7 @@ impl EmbeddingModel {
 pub fn init(rb_candle: RModule) -> Result<()> {
     let ruby = Ruby::get().unwrap();
     let rb_embedding_model = rb_candle.define_class("EmbeddingModel", ruby.class_object())?;
-    rb_embedding_model.define_singleton_method("_create", function!(EmbeddingModel::new, 5))?;
+    rb_embedding_model.define_singleton_method("_create", function!(EmbeddingModel::new, 6))?;
     // Expose embedding with an optional pooling_method argument (default: "pooled")
     rb_embedding_model.define_method("_embedding", method!(EmbeddingModel::embedding, 2))?;
     rb_embedding_model.define_method("embeddings", method!(EmbeddingModel::embeddings, 1))?;
