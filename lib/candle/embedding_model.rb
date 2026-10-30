@@ -15,8 +15,9 @@ module Candle
     # @param tokenizer [String, nil] The tokenizer to use (defaults to using the model's tokenizer)
     # @param model_type [String, nil] The type of embedding model (auto-detected if nil)
     # @param embedding_size [Integer, nil] Override for the embedding size (optional)
+    # @param max_length [Integer, nil] Longest input in tokens; longer inputs are truncated (optional)
     # @return [EmbeddingModel] A new EmbeddingModel instance
-    def self.from_pretrained(model_id = DEFAULT_MODEL_PATH, device: Candle::Device.best, tokenizer: nil, model_type: nil, embedding_size: nil)
+    def self.from_pretrained(model_id = DEFAULT_MODEL_PATH, device: Candle::Device.best, tokenizer: nil, model_type: nil, embedding_size: nil, max_length: nil)
       # Auto-detect model type based on model_id if not provided
       if model_type.nil?
         model_type = case model_id.downcase
@@ -34,7 +35,7 @@ module Candle
       # Use model_id as tokenizer if not specified (usually what you want)
       tokenizer_id = tokenizer || model_id
       
-      _create(model_id, tokenizer_id, device, model_type, embedding_size)
+      _create(model_id, tokenizer_id, device, model_type, embedding_size, max_length)
     end
     
     # Constructor for creating a new EmbeddingModel with optional parameters
@@ -44,13 +45,15 @@ module Candle
     # @param device [Candle::Device, Candle::Device.cpu] The device to use for computation
     # @param model_type [String, nil] The type of embedding model to use
     # @param embedding_size [Integer, nil] Override for the embedding size (optional)
+    # @param max_length [Integer, nil] Longest input in tokens; longer inputs are truncated (optional)
     def self.new(model_path: DEFAULT_MODEL_PATH,
       tokenizer_path: DEFAULT_TOKENIZER_PATH,
       device: Candle::Device.best,
       model_type: DEFAULT_EMBEDDING_MODEL_TYPE,
-      embedding_size: nil)
+      embedding_size: nil,
+      max_length: nil)
       $stderr.puts "[DEPRECATION] `EmbeddingModel.new` is deprecated. Please use `EmbeddingModel.from_pretrained` instead."
-      _create(model_path, tokenizer_path, device, model_type, embedding_size)
+      _create(model_path, tokenizer_path, device, model_type, embedding_size, max_length)
     end
     # Returns the embedding for a string using the specified pooling method.
     # @param str [String] The input text

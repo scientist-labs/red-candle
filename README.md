@@ -107,6 +107,10 @@ device = Candle::Device.cpu     # or Candle::Device.metal, Candle::Device.cuda
 model = Candle::EmbeddingModel.from_pretrained("jinaai/jina-embeddings-v2-base-en", device: device)
 embedding = model.embedding("Hi there!")
 
+# Cap input length (in tokens) to cut memory; longer inputs are truncated.
+# JinaBERT otherwise reserves ~3.2 GB for its full 8192-token context.
+model = Candle::EmbeddingModel.from_pretrained(max_length: 512)
+
 # Reranker also supports device selection
 reranker = Candle::Reranker.from_pretrained("cross-encoder/ms-marco-MiniLM-L-12-v2", device: device)
 results = reranker.rerank("query", ["doc1", "doc2", "doc3"])
