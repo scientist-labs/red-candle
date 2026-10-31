@@ -4,3 +4,26 @@ resolver = "2"
 
 [profile.test]
 opt-level = 3
+
+# Release profile for the precompiled (platform) gems. Before this block existed
+# the crate used Cargo's defaults (opt-level 3, no strip, no LTO, codegen-units 16),
+# so every shipped candle.so was unstripped and carried its full symbol table.
+#
+# - strip = true      removes the symbol table + strtab (~4.35 MB raw / ~1.16 MB
+#                     gzip PER .so; there is no DWARF here — release builds set
+#                     debug=false — so this is the only strippable weight).
+# - lto = "thin"      cross-crate inlining + dead-code elimination across the huge
+#                     candle-core / candle-transformers / reqwest+hyper+tokio tree.
+#                     "thin" (not "fat") keeps CI compile time and peak memory sane
+#                     on this large dependency graph while still recovering most of
+#                     the size win.
+# - codegen-units = 1 better within-crate dedup/inlining (smaller .text) at the cost
+#                     of build parallelism — acceptable for a CI-only release build.
+#
+# opt-level is deliberately left at the default (3): candle's CPU gemm/matmul kernels
+# are on the inference hot path, so "s"/"z" would trade real runtime speed for a
+# modest extra size win and are NOT used here.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
